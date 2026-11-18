@@ -46,6 +46,9 @@ Linux Tutor combines three things in one desktop application for Ubuntu:
 * Dark and light themes, adjustable font sizes, resizable panels, multiple terminal tabs
 * Curriculum in YAML files - add lessons without touching the application
 
+**Source and releases:** <https://github.com/allsharer/Linux-Tutor> - download the latest
+bundle from [Releases](https://github.com/allsharer/Linux-Tutor/releases).
+
 ## Quick start
 
 On Ubuntu 24.04 or newer, from a release bundle:

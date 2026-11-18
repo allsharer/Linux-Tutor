@@ -7,6 +7,13 @@ Intermediate → Advanced) with lectures, a real Bash shell in an isolated rootl
 laboratory, outcome-based marking of practical work, progressive hints, assessments,
 level examinations and progress tracking.  The original requirements are in `prompt.txt`.
 
+## Repository and releases
+
+* GitHub: <https://github.com/allsharer/Linux-Tutor> (branch `main`, remote `origin`).
+* Releases: tag `vX.Y.Z` and upload `dist/` artefacts with `gh release create` - the
+  bundle tarball, `.deb`, lab image `.tar.gz` + `.id`, and a `SHA256SUMS`.  `build/` and
+  `dist/` are git-ignored; never commit them.  v1.0.0 released 2026-11-18.
+
 ## Golden rules
 
 1. **Mark outcomes, never keystrokes.**  Checks inspect lab state.  The command log
