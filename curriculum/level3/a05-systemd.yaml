@@ -1,0 +1,202 @@
+id: a05-systemd
+level: advanced
+module: system
+title: Systemd and service management
+duration: 45
+objectives:
+  - Explain units, unit types and dependencies
+  - Start, stop, enable, mask and inspect services with systemctl
+  - Write a service unit for your own program
+  - Override vendor units safely with drop-ins
+
+sections:
+  - title: Units
+    content: |
+      **systemd** (PID 1) manages everything as **units**, described by files:
+
+      | Type | Example | Purpose |
+      |---|---|---|
+      | `.service` | `ssh.service` | a daemon or one-shot task |
+      | `.socket` | `ssh.socket` | start a service when a connection arrives |
+      | `.timer` | `logrotate.timer` | scheduled activation (cron replacement) |
+      | `.target` | `multi-user.target` | a group of units, a "system state" |
+      | `.mount` | `home.mount` | a mount point |
+
+      Unit files live in `/usr/lib/systemd/system` (from packages - do not edit),
+      `/etc/systemd/system` (administrator - overrides), and `~/.config/systemd/user`.
+  - title: systemctl
+    content: |
+      | Command | Effect |
+      |---|---|
+      | `systemctl status UNIT` | state, PID, recent log lines |
+      | `start` / `stop` / `restart` / `reload` | change state now |
+      | `enable` / `disable` | start at boot or not (`--now` also starts/stops) |
+      | `mask` / `unmask` | make a unit impossible to start |
+      | `is-active` / `is-enabled` / `is-failed` | script-friendly checks |
+      | `list-units --type=service --state=failed` | what is broken |
+      | `cat UNIT` / `show UNIT -p Prop` | the unit file / properties |
+      | `daemon-reload` | re-read unit files after editing |
+
+      **enabled** (starts at boot) and **active** (running now) are independent.
+  - title: Writing a service
+    content: |
+      ```ini
+      # /etc/systemd/system/myapp.service
+      [Unit]
+      Description=My application
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=myapp
+      WorkingDirectory=/opt/myapp
+      ExecStart=/opt/myapp/bin/server --port 8080
+      Restart=on-failure
+      RestartSec=5
+      Environment=MODE=production
+
+      [Install]
+      WantedBy=multi-user.target
+      ```
+
+      Then: `sudo systemctl daemon-reload && sudo systemctl enable --now myapp`.
+
+      * `Type=simple` - the process in ExecStart *is* the service (it must not fork into the background);
+      * `Restart=on-failure` - systemd restarts it when it crashes;
+      * `User=` - never run services as root without need;
+      * output on stdout/stderr goes to the journal automatically.
+  - title: Overriding units
+    content: |
+      Never edit files in `/usr/lib/systemd/system` - package updates overwrite them.
+      Create a **drop-in** instead:
+
+      ```
+      sudo systemctl edit nginx          # opens /etc/systemd/system/nginx.service.d/override.conf
+      ```
+
+      ```ini
+      [Service]
+      LimitNOFILE=65536
+      Restart=always
+      ```
+
+      `systemctl cat nginx` shows the original plus all drop-ins.  To *replace* a list
+      setting such as ExecStart, first clear it with an empty `ExecStart=` line.
+
+exercises:
+  - id: write-service
+    title: Turn a script into a service
+    instructions: |
+      **/usr/local/bin/heartbeat** is a script that writes a time stamp to the journal every
+      few seconds.  Create a systemd service **heartbeat.service** that:
+
+      * runs it as user **student**;
+      * restarts it automatically if it fails;
+      * is **enabled** (starts at boot) and **running now**.
+    setup: |
+      printf '#!/bin/bash\nwhile :; do echo "heartbeat $(date +%%T)"; sleep 5; done\n' > /usr/local/bin/heartbeat
+      chmod 755 /usr/local/bin/heartbeat
+      systemctl disable --now heartbeat 2>/dev/null; rm -f /etc/systemd/system/heartbeat.service; systemctl daemon-reload
+    cleanup: systemctl disable --now heartbeat 2>/dev/null || true
+    reference: |
+      printf '[Unit]\nDescription=Heartbeat\n\n[Service]\nExecStart=/usr/local/bin/heartbeat\nUser=student\nRestart=on-failure\n\n[Install]\nWantedBy=multi-user.target\n' | sudo tee /etc/systemd/system/heartbeat.service
+      sudo systemctl daemon-reload
+      sudo systemctl enable --now heartbeat
+    checks:
+      - {type: service_active, name: heartbeat}
+      - {type: service_enabled, name: heartbeat}
+      - {type: command, run: "systemctl show -p User --value heartbeat", stdout_equals: student,
+         fail: "The service does not run as student (User=student in [Service])."}
+      - {type: command, run: "systemctl show -p Restart --value heartbeat", stdout_regex: '^(on-failure|always|on-abnormal)$',
+         fail: "Automatic restart is not configured (Restart=on-failure)."}
+      - {type: process_running, pattern: /usr/local/bin/heartbeat, user: student}
+    hints:
+      - "A unit file in /etc/systemd/system with [Unit], [Service] and [Install] sections."
+      - "[Service] needs ExecStart=, User= and Restart=; [Install] needs WantedBy=multi-user.target for enable to work."
+      - "sudo systemctl edit --force --full heartbeat.service   (or write the file with sudo tee), then sudo systemctl daemon-reload && sudo systemctl enable --now heartbeat"
+      - "Check with systemctl status heartbeat and journalctl -u heartbeat -f."
+  - id: dropin
+    title: Override without editing
+    instructions: |
+      The service **tutor-vendor.service** is installed in /usr/lib/systemd/system (as a
+      package would).  Without modifying that file, add the environment variable
+      **LOG_LEVEL=debug** to the service using a **drop-in**, and restart it.
+    setup: |
+      printf '#!/bin/bash\necho "level=${LOG_LEVEL:-info}"\nexec sleep infinity\n' > /usr/local/bin/tutor-vendor; chmod 755 /usr/local/bin/tutor-vendor
+      printf '[Unit]\nDescription=Vendor service\n[Service]\nExecStart=/usr/local/bin/tutor-vendor\n[Install]\nWantedBy=multi-user.target\n' > /usr/lib/systemd/system/tutor-vendor.service
+      md5sum /usr/lib/systemd/system/tutor-vendor.service > /root/.vendor.md5
+      rm -rf /etc/systemd/system/tutor-vendor.service.d; systemctl daemon-reload; systemctl restart tutor-vendor
+    cleanup: systemctl stop tutor-vendor 2>/dev/null || true
+    reference: |
+      sudo mkdir -p /etc/systemd/system/tutor-vendor.service.d
+      printf '[Service]\nEnvironment=LOG_LEVEL=debug\n' | sudo tee /etc/systemd/system/tutor-vendor.service.d/override.conf
+      sudo systemctl daemon-reload && sudo systemctl restart tutor-vendor
+    checks:
+      - {type: command, run: "systemctl show -p Environment --value tutor-vendor", stdout_contains: LOG_LEVEL=debug,
+         fail: "systemd does not know about LOG_LEVEL=debug - did you run daemon-reload?"}
+      - {type: command, run: "sleep 0.5; journalctl -u tutor-vendor -n 1 -o cat --no-pager", stdout_contains: level=debug,
+         fail: "The running service still logs level=info - restart it after daemon-reload."}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.vendor.md5", exit_code: 0,
+         fail: "The vendor unit file in /usr/lib/systemd/system was modified - use a drop-in instead."}
+    hints:
+      - Drop-ins go in /etc/systemd/system/UNIT.d/*.conf.
+      - "sudo systemctl edit tutor-vendor creates the drop-in for you; add [Service] and Environment=LOG_LEVEL=debug."
+      - "sudo systemctl edit tutor-vendor   (then restart it)"
+      - "systemctl edit runs daemon-reload when you save; sudo systemctl restart tutor-vendor makes the new environment effective."
+
+quiz:
+  questions:
+    - id: q-enabled
+      type: truefalse
+      topic: systemctl
+      prompt: A service can be enabled but not running at the moment.
+      answer: true
+    - id: q-mask
+      type: mcq
+      topic: systemctl
+      prompt: What does systemctl mask do?
+      options: [Hides the service from status output, Prevents the unit from being started at all, Stops logging, Disables only at boot]
+      answer: 1
+    - id: q-reload
+      type: short
+      topic: systemctl
+      prompt: Which systemctl subcommand must you run after editing a unit file?
+      answer: [daemon-reload]
+    - id: q-wanted
+      type: mcq
+      topic: Writing a service
+      prompt: Without an [Install] section with WantedBy=, what happens on `systemctl enable myapp`?
+      options: [It works normally, systemctl reports the unit has no installation config and nothing is enabled, The service starts twice, It is masked]
+      answer: 1
+    - id: q-vendor
+      type: troubleshoot
+      topic: Overriding units
+      prompt: You changed /usr/lib/systemd/system/nginx.service and after the next update your change was gone.  What should you have done?
+      options: [Made the file immutable, Used a drop-in in /etc/systemd/system/nginx.service.d/, Edited /etc/nginx/nginx.conf, Masked nginx]
+      answer: 1
+    - id: q-forking
+      type: interpret
+      topic: Writing a service
+      prompt: A service with Type=simple runs `myd --daemonize`, which forks into the background and exits.  What does systemd see?
+      options: [The service running normally, The main process exited - the service is considered stopped/failed, A timer, Nothing]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Disable and mask
+      topic: systemctl
+      prompt: |
+        The service **cron** must never run on this machine: **stop** it and **mask** it.
+      setup: systemctl unmask cron 2>/dev/null; systemctl enable --now cron 2>/dev/null; true
+      cleanup: systemctl unmask cron 2>/dev/null; systemctl start cron 2>/dev/null || true
+      reference: sudo systemctl mask --now cron
+      alternatives: ['sudo systemctl stop cron && sudo systemctl mask cron']
+      checks:
+        - {type: service_active, name: cron, state: inactive}
+        - {type: service_enabled, name: cron, state: masked}
+      hints:
+        - Two actions - stop now, and make starting impossible.
+        - "systemctl mask --now does both."
+        - sudo systemctl mask --now cron
+        - "Masking links the unit to /dev/null; systemctl start cron then fails with 'Unit cron.service is masked'."

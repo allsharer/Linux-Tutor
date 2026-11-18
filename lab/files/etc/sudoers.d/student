@@ -1,0 +1,4 @@
+# Linux Tutor: the student may use sudo (password: student).
+# This is root *inside the disposable laboratory container only*.
+student ALL=(ALL:ALL) ALL
+Defaults:student lecture="once", passwd_timeout=0, timestamp_timeout=30

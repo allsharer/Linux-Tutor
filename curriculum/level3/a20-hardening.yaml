@@ -1,0 +1,184 @@
+id: a20-hardening
+level: advanced
+module: operations
+title: Security hardening
+duration: 45
+objectives:
+  - Reduce the attack surface - services, packages, open ports
+  - Audit permissions - world-writable files, setuid programs, sensitive files
+  - Apply account and authentication hardening
+  - Keep systems patched and monitored
+
+sections:
+  - title: Principles
+    content: |
+      * **Least privilege** - every user and service gets only what it needs.
+      * **Minimise the attack surface** - what is not installed or not running cannot be attacked.
+      * **Defence in depth** - several independent layers (firewall + sshd config + updates + monitoring).
+      * **Patch promptly** - most real compromises use known, already-fixed vulnerabilities.
+      * **Log and review** - you cannot respond to what you do not see.
+
+      Benchmarks such as the **CIS Benchmarks** and tools such as **Lynis** (`lynis audit system`)
+      give checklists.
+  - title: Attack surface
+    content: |
+      ```
+      ss -tulpn                                     # what listens, and on which address?
+      systemctl list-unit-files --state=enabled     # what starts at boot?
+      sudo systemctl disable --now cups avahi-daemon  # remove what is not needed
+      apt list --installed | wc -l
+      ```
+
+      Bind internal services to 127.0.0.1 instead of 0.0.0.0, and firewall the rest.
+  - title: Files and permissions
+    content: |
+      ```
+      sudo find / -xdev -type f -perm -0002 2>/dev/null           # world-writable files
+      sudo find / -xdev -type d -perm -0002 ! -perm -1000 2>/dev/null   # world-writable dirs without sticky bit
+      sudo find / -xdev -perm -4000 -type f 2>/dev/null           # setuid programs - know each one
+      sudo find / -xdev -nouser -o -nogroup 2>/dev/null           # orphaned files
+      ls -l /etc/shadow /etc/gshadow                              # must be 640 root:shadow (or 600)
+      ```
+
+      Remove setuid from programs that do not need it: `sudo chmod u-s /path`.
+  - title: Accounts, updates and monitoring
+    content: |
+      * no accounts with empty passwords: `sudo awk -F: '$2==""' /etc/shadow`;
+      * only root may have UID 0: `awk -F: '$3==0' /etc/passwd`;
+      * lock unused accounts; enforce password ageing and quality (PAM);
+      * SSH: keys only, no root login (previous lesson);
+      * updates: `sudo apt update && sudo apt upgrade`; enable **unattended-upgrades** for
+        security patches; reboot for kernel updates (`/var/run/reboot-required`);
+      * monitoring: failed logins (`journalctl -u ssh`, `lastb`), file integrity (AIDE),
+        audit framework (`auditd`).
+
+exercises:
+  - id: world-writable
+    title: Fix world-writable files
+    instructions: |
+      Under **/srv/apps**, some regular files are **world-writable**.  Remove the
+      others-write permission from **all** of them (leave every other bit as it is).
+      Directories that are world-writable *and sticky* (like /tmp) are intentional - leave
+      them alone.
+    setup: |
+      rm -rf /srv/apps; mkdir -p /srv/apps/{web,api,upload}
+      touch /srv/apps/web/{index.php,config.php} /srv/apps/api/{main.py,secrets.env} /srv/apps/upload/README
+      chmod 666 /srv/apps/web/config.php /srv/apps/api/secrets.env; chmod 777 /srv/apps/api/main.py
+      chmod 644 /srv/apps/web/index.php /srv/apps/upload/README; chmod 1777 /srv/apps/upload
+    reference: sudo find /srv/apps -type f -perm -0002 -exec chmod o-w {} +
+    checks:
+      - {type: command, run: "find /srv/apps -type f -perm -0002 | wc -l", stdout_equals: "0"}
+      - {type: mode, path: /srv/apps/api/main.py, mode: "775", fail: "main.py should become 775 - only the others-write bit should be removed."}
+    constraints:
+      - {type: mode, path: /srv/apps/upload, mode: "1777", fail: "The sticky upload directory was changed - it was intentionally world-writable."}
+    hints:
+      - Find files by permission, then remove one bit.
+      - "find -type f -perm -0002 selects world-writable files; chmod o-w removes only that bit."
+      - sudo find /srv/apps -type f -perm -0002 -exec chmod o-w {} +
+      - "-type f leaves the sticky directory untouched; symbolic o-w keeps the other bits."
+  - id: setuid-remove
+    title: An unexpected setuid program
+    instructions: |
+      An audit found a **setuid-root** copy of a shell somewhere under **/usr/local** - a
+      classic backdoor.  Find it and **remove its setuid bit** (keep the file for forensics).
+      Type its full path into the answer box as well.
+    answer_prompt: "Path of the setuid file:"
+    setup: |
+      d=/usr/local/lib/.cache-$(( RANDOM % 900 + 100 )); mkdir -p "$d"; cp /usr/bin/bash "$d/helper"
+      chmod 4755 "$d/helper"; echo "$d/helper" > /root/.backdoor
+    reference: sudo find /usr/local -perm -4000 -type f
+    solution: sudo chmod u-s $(sudo find /usr/local -perm -4000 -type f)
+    checks:
+      - {type: command, run: "find /usr/local -perm -4000 -type f | wc -l", stdout_equals: "0", fail: "There is still a setuid file under /usr/local."}
+      - {type: command, run: "test -f \"$(cat /root/.backdoor)\" && echo kept", stdout_equals: kept, fail: "The file was deleted - keep it for forensic analysis."}
+      - {type: answer, command: "cat /root/.backdoor"}
+    hints:
+      - Search by permission under /usr/local, including hidden directories.
+      - "find /usr/local -perm -4000 -type f"
+      - "sudo find /usr/local -perm -4000 -type f    then    sudo chmod u-s PATH"
+      - "A setuid-root bash gives anyone a root shell (helper -p). Removing the bit neutralises it."
+  - id: open-ports
+    title: Close what is not needed
+    instructions: |
+      Two services are listening: **ssh** (needed) and **tutor-legacy.service** - an old,
+      unneeded telnet-like service on port **2323**.  **Stop it and make sure it does not
+      start again at boot**, and remove nothing else.
+    setup: |
+      cp "$(readlink -f /usr/bin/nc)" /usr/local/lib/legacy-console
+      printf '[Unit]\nDescription=Legacy remote console\n[Service]\nExecStart=/usr/local/lib/legacy-console -lk -p 2323\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/tutor-legacy.service
+      systemctl daemon-reload; systemctl unmask tutor-legacy 2>/dev/null; systemctl enable --now tutor-legacy 2>/dev/null; systemctl start ssh
+    cleanup: systemctl disable --now tutor-legacy 2>/dev/null || true
+    reference: sudo systemctl disable --now tutor-legacy
+    checks:
+      - {type: not, check: {type: port_listening, port: 2323}, fail: "Port 2323 is still open."}
+      - {type: command, run: "systemctl is-enabled tutor-legacy", stdout_regex: '^(disabled|masked)$', fail: "tutor-legacy would start again at boot."}
+    constraints:
+      - {type: port_listening, port: 22, fail: "ssh was stopped too!"}
+    hints:
+      - Find what listens on 2323, then stop and disable that service.
+      - "ss -tlnp shows the process; systemctl disable --now stops and disables."
+      - sudo systemctl disable --now tutor-legacy
+      - "disable --now = stop + disable. mask --now would also prevent manual starts."
+
+quiz:
+  questions:
+    - id: q-least
+      type: mcq
+      topic: Principles
+      prompt: What does "minimise the attack surface" mean in practice?
+      options: [Use a smaller disk, Remove or disable services, packages and accounts that are not needed, Hide the server's name, Use short passwords]
+      answer: 1
+    - id: q-uid0
+      type: interpret
+      topic: Accounts, updates and monitoring
+      prompt: What is alarming in this output?
+      output: |
+        $ awk -F: '$3==0' /etc/passwd
+        root:x:0:0:root:/root:/bin/bash
+        sysbackup:x:0:0::/home/sysbackup:/bin/bash
+      options: [Nothing, A second account has UID 0 - it is a full root account, root uses bash, sysbackup has no comment]
+      answer: 1
+    - id: q-shadow
+      type: mcq
+      topic: Files and permissions
+      prompt: Which mode is appropriate for /etc/shadow on Ubuntu?
+      options: ["644", "640 root:shadow", "666", "755"]
+      answer: 1
+    - id: q-unattended
+      type: short
+      topic: Accounts, updates and monitoring
+      prompt: Which Ubuntu package installs security updates automatically?
+      answer: [unattended-upgrades]
+    - id: q-bind
+      type: truefalse
+      topic: Attack surface
+      prompt: A database that only local applications use should listen on 127.0.0.1 rather than 0.0.0.0.
+      answer: true
+    - id: q-reboot
+      type: troubleshoot
+      topic: Accounts, updates and monitoring
+      prompt: A kernel security update was installed a month ago, but uname -r still shows the old version.  Why?
+      options: [The update failed, The system has not been rebooted since, apt is broken, uname is cached]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Remove a second root
+      topic: Accounts, updates and monitoring
+      prompt: |
+        An account other than root has **UID 0**.  Find it and **lock** it (so it cannot be
+        used), and change its shell to **/usr/sbin/nologin**.  Do not touch root.
+      setup: |
+        userdel -f sysbackup 2>/dev/null; useradd -o -u 0 -g 0 -M -d /root -s /bin/bash sysbackup; echo 'sysbackup:Passw0rd' | chpasswd
+      cleanup: userdel -f sysbackup 2>/dev/null || true
+      reference: sudo usermod -L -s /usr/sbin/nologin sysbackup
+      checks:
+        - {type: user_locked, name: sysbackup}
+        - {type: user_exists, name: sysbackup, shell: /usr/sbin/nologin}
+      constraints:
+        - {type: user_exists, name: root, shell: /bin/bash, fail: "root's account was changed!"}
+        - {type: command, run: "passwd -S root | awk '{print $2}'", stdout_regex: '^(P|L|NP)$'}
+      hints:
+        - "awk -F: '$3==0' /etc/passwd lists UID 0 accounts."
+        - "usermod -L locks; -s sets the shell. Use the name, not the UID - both are 0!"
+        - sudo usermod -L -s /usr/sbin/nologin sysbackup
+        - "Afterwards investigate how the account appeared - it is a sign of compromise."

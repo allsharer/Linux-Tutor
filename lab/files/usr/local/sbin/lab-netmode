@@ -1,0 +1,19 @@
+#!/bin/bash
+# lab-netmode offline|online [--no-update]
+# Switches APT between the built-in offline repository and the Ubuntu archive.
+set -e
+mode=${1:-offline}
+src=/etc/apt/sources.list.d
+local_list="$src/lab-local.list"
+echo "deb [trusted=yes] file:/opt/lab-repo ./" > "$local_list"
+case "$mode" in
+  offline)
+    [ -f "$src/ubuntu.sources" ] && mv "$src/ubuntu.sources" "$src/ubuntu.sources.disabled"
+    ;;
+  online)
+    [ -f "$src/ubuntu.sources.disabled" ] && mv "$src/ubuntu.sources.disabled" "$src/ubuntu.sources"
+    ;;
+  *) echo "usage: lab-netmode offline|online" >&2; exit 2 ;;
+esac
+echo "$mode" > /etc/lab-netmode
+[ "$2" = "--no-update" ] || apt-get update -qq -o Acquire::Languages=none >/dev/null 2>&1 || true

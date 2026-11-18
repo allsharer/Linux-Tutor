@@ -1,0 +1,224 @@
+id: a22-scenarios
+level: advanced
+module: operations
+title: System administration scenarios
+duration: 60
+objectives:
+  - Combine everything you have learned in realistic, multi-step tasks
+  - Plan before acting, verify after acting
+  - Leave systems documented, secure and reproducible
+
+sections:
+  - title: How professionals approach a task
+    content: |
+      Real requests rarely say which commands to use:
+
+      > "Can you set up the new developer, Priya?  She needs access to the project
+      > files and should be able to restart the app."
+
+      Break it down: account → groups → shared directory permissions → sudo rule →
+      SSH key → test as her → document.  Then **verify every requirement** - exactly what
+      this tutor's examiner does.
+
+      Checklist for any change:
+
+      1. understand the requirement (ask if unclear);
+      2. check the current state;
+      3. plan, including how to roll back;
+      4. make the change with idempotent, reviewable commands;
+      5. verify from the user's point of view;
+      6. document what you did.
+  - title: The scenarios
+    content: |
+      The exercises in this lesson are complete scenarios.  Each combines topics from
+      several lessons: users and groups, permissions and ACLs, systemd, logs, scheduling,
+      networking and security.  Hints are deliberately higher-level - plan first.
+
+      :::tip
+      Reset the laboratory before starting if it is cluttered from earlier experiments
+      (Lab > Reset lesson laboratory).  Your progress is not affected.
+      :::
+
+exercises:
+  - id: onboard
+    title: Onboard a developer
+    instructions: |
+      Set up **priya** for the **atlas** project:
+
+      1. account **priya** with home directory and bash shell, member of group **atlas**
+         (create the group);
+      2. directory **/srv/atlas** owned by root:atlas, mode **2770** - members share files,
+         others see nothing;
+      3. priya may run **/usr/bin/systemctl restart atlas** as root via sudo - and nothing else
+         (rule in **/etc/sudoers.d/atlas**, valid syntax);
+      4. priya can log in with the SSH public key in **/root/priya.pub** (install it for her
+         with correct ownership and permissions).
+    setup: |
+      userdel -r priya 2>/dev/null; groupdel atlas 2>/dev/null; rm -rf /srv/atlas /etc/sudoers.d/atlas
+      ssh-keygen -q -t ed25519 -N "" -C priya@laptop -f /root/priya-key <<< y >/dev/null 2>&1; cp /root/priya-key.pub /root/priya.pub
+    reference: |
+      sudo groupadd atlas
+      sudo useradd -m -s /bin/bash -G atlas priya
+      sudo mkdir -p /srv/atlas && sudo chown root:atlas /srv/atlas && sudo chmod 2770 /srv/atlas
+      echo 'priya ALL=(root) /usr/bin/systemctl restart atlas' | sudo tee /etc/sudoers.d/atlas && sudo chmod 440 /etc/sudoers.d/atlas
+      sudo install -d -m 700 -o priya -g priya /home/priya/.ssh
+      sudo install -m 600 -o priya -g priya /root/priya.pub /home/priya/.ssh/authorized_keys
+    checks:
+      - {type: user_exists, name: priya, shell: /bin/bash, home_exists: true}
+      - {type: user_in_group, user: priya, group: atlas}
+      - {type: owner, path: /srv/atlas, user: root, group: atlas}
+      - {type: mode, path: /srv/atlas, mode: "2770"}
+      - {type: command, run: "visudo -cf /etc/sudoers.d/atlas", exit_code: 0}
+      - {type: command, run: "sudo -l -U priya", stdout_contains: "/usr/bin/systemctl restart atlas"}
+      - {type: command, run: "grep -qf /root/priya.pub /home/priya/.ssh/authorized_keys && stat -c '%U %a' /home/priya/.ssh/authorized_keys /home/priya/.ssh",
+         stdout_regex: ['^priya 600$', '^priya 700$'],
+         fail: "priya's key is not installed correctly (authorized_keys 600 and ~/.ssh 700, both owned by priya)."}
+    constraints:
+      - {type: command, run: "sudo -l -U priya | grep -E '\\(ALL( : ALL)?\\) ALL|\\(root\\) ALL$' | wc -l", stdout_equals: "0",
+         fail: "priya's sudo rights are broader than requested."}
+    hints:
+      - "Work through the four requirements one by one and verify each (id, ls -ld, sudo -l -U, stat)."
+      - "groupadd + useradd -m -G; chown root:atlas + chmod 2770; a sudoers.d drop-in; ~/.ssh 700 and authorized_keys 600 owned by priya."
+      - "install -d -m 700 -o priya -g priya /home/priya/.ssh  and  install -m 600 -o priya -g priya /root/priya.pub /home/priya/.ssh/authorized_keys"
+      - "Reuse the patterns from the lessons on user administration, chmod/chown, SSH and sudo."
+  - id: deploy-service
+    title: Deploy an application as a service
+    instructions: |
+      Deploy the application archive **/root/notes-app.tgz** properly:
+
+      1. create a **system user** `notes` (no login shell);
+      2. unpack the archive into **/opt/notes-app** (so that /opt/notes-app/run.sh exists),
+         owned by root and **not writable** by the notes user;
+      3. the app writes data to **/var/lib/notes** - create it, owned by `notes`;
+      4. create **notes.service** running `/opt/notes-app/run.sh` as `notes`, restarting on
+         failure, **enabled** and **running**;
+      5. it listens on **127.0.0.1:8070** - verify with curl.
+    setup: |
+      systemctl disable --now notes 2>/dev/null; rm -f /etc/systemd/system/notes.service; systemctl daemon-reload
+      userdel notes 2>/dev/null; rm -rf /opt/notes-app /var/lib/notes /tmp/na
+      mkdir -p /tmp/na/notes-app
+      cat > /tmp/na/notes-app/run.sh <<'EOF'
+      #!/bin/bash
+      set -e
+      echo "<h1>Notes</h1><p>started $(date)</p>" > /var/lib/notes/index.html
+      exec python3 -m http.server 8070 --bind 127.0.0.1 --directory /var/lib/notes
+      EOF
+      chmod 755 /tmp/na/notes-app/run.sh; tar czf /root/notes-app.tgz -C /tmp/na notes-app
+    cleanup: systemctl disable --now notes 2>/dev/null || true
+    reference: |
+      sudo useradd -r -s /usr/sbin/nologin notes
+      sudo tar xzf /root/notes-app.tgz -C /opt && sudo chown -R root:root /opt/notes-app
+      sudo install -d -o notes -g notes /var/lib/notes
+      printf '[Unit]\nDescription=Notes app\nAfter=network.target\n[Service]\nUser=notes\nExecStart=/opt/notes-app/run.sh\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\n' | sudo tee /etc/systemd/system/notes.service
+      sudo systemctl daemon-reload && sudo systemctl enable --now notes; sleep 1
+    checks:
+      - {type: user_exists, name: notes}
+      - {type: command, run: "getent passwd notes | cut -d: -f7", stdout_regex: '(nologin|false)$', fail: "The notes user can log in - give it /usr/sbin/nologin."}
+      - {type: file_exists, path: /opt/notes-app/run.sh}
+      - {type: command, run: "su -s /bin/sh notes -c 'test -w /opt/notes-app/run.sh || test -w /opt/notes-app' && echo writable || echo protected", stdout_equals: protected,
+         fail: "The notes user can modify the application code - it should be owned by root."}
+      - {type: owner, path: /var/lib/notes, user: notes}
+      - {type: service_active, name: notes}
+      - {type: service_enabled, name: notes}
+      - {type: command, run: "systemctl show -p User --value notes", stdout_equals: notes}
+      - {type: command, run: "systemctl show -p Restart --value notes", stdout_regex: '^(on-failure|always|on-abnormal)$'}
+      - {type: command, run: "sleep 1; curl -s -m 3 http://127.0.0.1:8070/", stdout_contains: Notes}
+    hints:
+      - "Five parts: user, code, data, unit, verification."
+      - "useradd -r -s /usr/sbin/nologin; tar -C /opt; install -d -o notes; unit with User= and Restart=; enable --now."
+      - "Reuse the unit-file pattern from the systemd lesson; the code stays root-owned, only /var/lib/notes belongs to notes."
+      - "Check journalctl -u notes if it does not start - for instance if /var/lib/notes is missing or not writable."
+  - id: maintenance
+    title: A maintenance window
+    instructions: |
+      Prepare the server for unattended operation:
+
+      1. a **daily** systemd timer **db-backup.timer** (04:00, Persistent) runs **db-backup.service**,
+         which executes `/usr/local/bin/db-backup` - enable and start the timer;
+      2. **/usr/local/bin/db-backup** already exists; run the service **once by hand** now
+         and make sure it succeeds (it writes into /var/backups/db - fix whatever stops it);
+      3. limit the journal to **200M** (`SystemMaxUse`) with a journald drop-in, and restart journald.
+    setup: |
+      systemctl disable --now db-backup.timer 2>/dev/null; rm -f /etc/systemd/system/db-backup.{service,timer}; rm -rf /var/backups/db
+      rm -f /etc/systemd/journald.conf.d/size.conf /etc/systemd/journald.conf.d/maint*.conf
+      printf '#!/bin/bash\nset -e\ntar czf /var/backups/db/db-$(date +%%F-%%H%%M%%S).tgz -C /etc hostname\nlogger -t db-backup "backup ok"\n' > /usr/local/bin/db-backup
+      chmod 755 /usr/local/bin/db-backup; systemctl daemon-reload
+    cleanup: systemctl disable --now db-backup.timer 2>/dev/null || true
+    reference: |
+      printf '[Unit]\nDescription=DB backup\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/db-backup\n' | sudo tee /etc/systemd/system/db-backup.service
+      printf '[Timer]\nOnCalendar=*-*-* 04:00:00\nPersistent=true\n[Install]\nWantedBy=timers.target\n' | sudo tee /etc/systemd/system/db-backup.timer
+      sudo mkdir -p /var/backups/db
+      sudo systemctl daemon-reload && sudo systemctl enable --now db-backup.timer && sudo systemctl start db-backup.service
+      sudo mkdir -p /etc/systemd/journald.conf.d
+      printf '[Journal]\nSystemMaxUse=200M\n' | sudo tee /etc/systemd/journald.conf.d/size.conf
+      sudo systemctl restart systemd-journald
+    checks:
+      - {type: service_enabled, name: db-backup.timer}
+      - {type: service_active, name: db-backup.timer}
+      - {type: command, run: "systemctl show -p TimersCalendar --value db-backup.timer", stdout_regex: 'OnCalendar=\*-\*-\* 04:00:00'}
+      - {type: command, run: "systemctl show -p Persistent --value db-backup.timer", stdout_equals: "yes"}
+      - {type: command, run: "ls /var/backups/db/*.tgz 2>/dev/null | wc -l", stdout_regex: '^[1-9]',
+         fail: "No backup file was written to /var/backups/db - did the manual run succeed? (Hint: the directory did not exist.)"}
+      - {type: command, run: "systemctl show -p Result --value db-backup.service", stdout_equals: success}
+      - {type: command, run: "grep -hE '^\\s*SystemMaxUse\\s*=\\s*200M' /etc/systemd/journald.conf.d/*.conf | wc -l", stdout_regex: '^[1-9]'}
+    hints:
+      - "Three independent tasks; check each with systemctl show / ls / journalctl."
+      - "The script fails at first because /var/backups/db does not exist - systemctl status db-backup.service tells you."
+      - "Units like in the automation lesson; mkdir -p /var/backups/db; a [Journal] drop-in with SystemMaxUse=200M."
+      - "After fixing the directory, sudo systemctl start db-backup.service should end with Result=success."
+
+quiz:
+  questions:
+    - id: q-verify
+      type: mcq
+      topic: How professionals approach a task
+      prompt: After completing a change request, what should you do before reporting it as done?
+      options: [Nothing - the commands ran without errors, Verify each requirement from the user's point of view, Reboot the server, Delete the logs]
+      answer: 1
+    - id: q-rollback
+      type: truefalse
+      topic: How professionals approach a task
+      prompt: A good change plan includes how to roll the change back.
+      answer: true
+    - id: q-codeowner
+      type: mcq
+      topic: The scenarios
+      prompt: Why should an application's code be owned by root while it runs as an unprivileged user?
+      options: [It is faster, A compromised application cannot modify its own code, Root owns everything anyway, systemd requires it]
+      answer: 1
+    - id: q-order
+      type: troubleshoot
+      topic: The scenarios
+      prompt: A new service fails with "status=217/USER".  What is wrong?
+      options: [The binary is missing, The User= account does not exist, The port is busy, The unit is masked]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Shared read-only reports
+      topic: The scenarios
+      prompt: |
+        The group **auditors** (create it) must be able to **read** everything in
+        **/srv/reports** - including files created there **in future** - without being able to
+        modify anything.  User **sam** (create him, home directory, bash) is an auditor.
+        Do not change the owner, group or mode bits of /srv/reports.
+      setup: |
+        userdel -r sam 2>/dev/null; groupdel auditors 2>/dev/null
+        rm -rf /srv/reports; mkdir -p /srv/reports; echo "2023 report" > /srv/reports/2023.txt
+        chown -R root:root /srv/reports; chmod 750 /srv/reports; chmod 640 /srv/reports/2023.txt
+      reference: |
+        sudo groupadd auditors && sudo useradd -m -s /bin/bash -G auditors sam
+        sudo setfacl -R -m g:auditors:rX /srv/reports
+        sudo setfacl -d -m g:auditors:rX /srv/reports
+      checks:
+        - {type: user_in_group, user: sam, group: auditors}
+        - {type: command, user: sam, run: "cat /srv/reports/2023.txt", stdout_contains: 2023 report}
+        - {type: command, run: "echo new > /srv/reports/2024.txt; su sam -s /bin/sh -c 'cat /srv/reports/2024.txt'", stdout_contains: new,
+           fail: "A newly created file is not readable by auditors - add a default ACL."}
+        - {type: command, user: sam, run: "touch /srv/reports/x 2>/dev/null; echo $?", stdout_regex: '^[1-9]', fail: "sam can create files."}
+      constraints:
+        - {type: mode, path: /srv/reports, mode: "750", fail: "The directory's mode bits were changed - use ACLs."}
+      hints:
+        - "Access ACL for existing content, default ACL for future content."
+        - "setfacl -R -m g:auditors:rX and setfacl -d -m g:auditors:rX"
+        - sudo setfacl -R -m g:auditors:rX /srv/reports && sudo setfacl -d -m g:auditors:rX /srv/reports
+        - "Test as sam: sudo -u sam cat /srv/reports/2023.txt."

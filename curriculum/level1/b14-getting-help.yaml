@@ -1,0 +1,183 @@
+id: b14-getting-help
+level: beginner
+module: commands
+title: Getting help using man, info and --help
+duration: 25
+objectives:
+  - Get a quick summary of a command with --help
+  - Read and search manual pages with man
+  - Understand manual sections
+  - Find commands by keyword with apropos / man -k, and use info
+
+sections:
+  - title: Why help matters
+    content: |
+      Nobody remembers every option of every command.  Professionals look things up
+      constantly - the skill is knowing *where* and *how* to look.  Linux carries its
+      documentation with it, so you can get help even on a server without Internet
+      access.
+  - title: Quick help with --help
+    content: |
+      Most commands print a short summary of their options with `--help`:
+
+      ```
+      $ mkdir --help
+      Usage: mkdir [OPTION]... DIRECTORY...
+      Create the DIRECTORY(ies), if they do not already exist.
+        -m, --mode=MODE   set file mode (as in chmod), not a=rwx - umask
+        -p, --parents     no error if existing, make parent directories as needed
+      ...
+      ```
+
+      For shell built-ins use `help`: `help cd`.
+    examples:
+      - command: mkdir --help
+        explanation: A quick reference for mkdir.
+      - command: help cd
+        explanation: Help for a shell built-in.
+  - title: The manual - man
+    content: |
+      `man COMMAND` opens the full **manual page** in a pager (less):
+
+      * scroll with the arrow keys, Space and b;
+      * **/word** searches forward, **n** jumps to the next match;
+      * **q** quits.
+
+      A manual page has standard parts: NAME, SYNOPSIS (usage), DESCRIPTION, OPTIONS,
+      EXAMPLES (sometimes), SEE ALSO.
+
+      :::tip
+      Jump straight to EXAMPLES: open the page and type `/EXAMPLES` then Enter.
+      :::
+    examples:
+      - command: man ls
+        explanation: The manual for ls. Press q to quit.
+      - command: man -k partition
+        explanation: Search all manual page descriptions for 'partition'.
+  - title: Manual sections
+    content: |
+      The manual is divided into numbered **sections**:
+
+      | Section | Contents |
+      |---|---|
+      | 1 | user commands (`ls`, `cp`) |
+      | 5 | file formats (`/etc/passwd`, `crontab`) |
+      | 8 | administration commands (`useradd`, `mount`) |
+      | 2, 3 | programming interfaces |
+      | 7 | overviews and conventions (`hier`, `regex`) |
+
+      The same name can exist in several sections.  `passwd(1)` is the command,
+      `passwd(5)` is the file format.  Choose a section explicitly: `man 5 passwd`.
+  - title: Searching and info
+    content: |
+      Don't know the command's name?  Search the one-line descriptions:
+
+      ```
+      $ man -k "copy files"        # same as: apropos "copy files"
+      cp (1)               - copy files and directories
+      ...
+      ```
+
+      GNU tools also have **info** manuals, longer and organised like a book:
+      `info coreutils`.  Navigate with the arrow keys, Enter to follow a link,
+      `u` for up, `q` to quit.  `whatis cmd` prints a command's one-line description.
+
+exercises:
+  - id: option-lookup
+    title: Look up an option
+    instructions: |
+      Use the documentation to find out which **single-letter option of `ls`** sorts by
+      file **size**.  Type the option (for example `-x`).
+    answer_prompt: "Option:"
+    reference: ls --help
+    test_answer: "-S"
+    checks:
+      - type: answer
+        regex: '-S|S'
+        ignore_case: false
+        fail: That is not the option.  Search for "size" in man ls (type /size).
+    hints:
+      - The answer is in the ls documentation.
+      - Use ls --help or man ls and search for the word "size".
+      - "man ls, then type /sort by and press n until you find it"
+      - "-S: sort by file size, largest first. (Note the capital S - options are case-sensitive.)"
+  - id: section5
+    title: Manual sections
+    instructions: |
+      Read the manual page that describes the **format of the file /etc/passwd** (not
+      the passwd command).  According to it, what is the **seventh** field of each line?
+      Save the manual page's **NAME line** to prove you found it: create **~/passwd-man.txt**
+      containing the output of `whatis -s 5 passwd`, and type the field name (one word)
+      in the answer box.
+    answer_prompt: "Seventh field:"
+    setup: rm -f {home}/passwd-man.txt
+    reference: man 5 passwd; whatis -s 5 passwd > ~/passwd-man.txt
+    solution: whatis -s 5 passwd > ~/passwd-man.txt
+    test_answer: shell
+    checks:
+      - {type: file_contains, path: ~/passwd-man.txt, regex: 'passwd \(5\)'}
+      - type: answer
+        regex: '(login |command |user )?(shell|interpreter)'
+        fail: Look at the list of fields in man 5 passwd - the last one is the command interpreter.
+    hints:
+      - The file format is documented in a different manual section from the command.
+      - File formats are in section 5.
+      - man 5 passwd
+      - "man 5 passwd lists the seven fields; the last is the user's command interpreter (login shell). whatis -s 5 passwd > ~/passwd-man.txt saves the NAME line."
+
+quiz:
+  questions:
+    - id: q-quit
+      type: mcq
+      topic: The manual - man
+      prompt: How do you leave a manual page?
+      options: [Ctrl+C, q, ':wq', exit]
+      answer: 1
+    - id: q-search
+      type: mcq
+      topic: The manual - man
+      prompt: Inside man, how do you search for the word "recursive"?
+      options: [Ctrl+F recursive, /recursive, ?help recursive, find recursive]
+      answer: 1
+    - id: q-section
+      type: mcq
+      topic: Manual sections
+      prompt: Which manual section documents configuration file formats?
+      options: ["1", "5", "8", "3"]
+      answer: 1
+    - id: q-apropos
+      type: short
+      topic: Searching and info
+      prompt: Which command searches the descriptions of all manual pages for a keyword? (either name is accepted)
+      answer: [apropos, man -k, "re:apropos|man\\s+-k"]
+    - id: q-builtin
+      type: troubleshoot
+      topic: Quick help with --help
+      prompt: "`man cd` says 'No manual entry for cd'.  Where do you find documentation for cd?"
+      options: [cd --help only, help cd (cd is a shell built-in), info cd only, There is none]
+      answer: 1
+    - id: q-admin
+      type: truefalse
+      topic: Manual sections
+      prompt: Section 8 of the manual contains system administration commands such as useradd.
+      answer: true
+    - id: q-practical
+      type: practical
+      title: Find the right tool
+      topic: Searching and info
+      prompt: |
+        You need a command that **shows the differences between two files**, but you do
+        not know its name.  Use the manual's keyword search to find it, then use it to
+        compare **~/old.txt** and **~/new.txt**, saving the output to **~/changes.txt**.
+      setup: |
+        printf 'apple\nbanana\ncherry\n' > {home}/old.txt; printf 'apple\nblueberry\ncherry\n' > {home}/new.txt
+        chown student: {home}/old.txt {home}/new.txt; rm -f {home}/changes.txt
+      reference: diff ~/old.txt ~/new.txt > ~/changes.txt
+      alternatives: ['diff -u ~/old.txt ~/new.txt > ~/changes.txt']
+      checks:
+        - {type: file_contains, path: ~/changes.txt, regex: ['banana', 'blueberry']}
+      hints:
+        - Search manual descriptions for a phrase such as "compare files".
+        - "man -k compare (or apropos compare) lists diff among others."
+        - diff ~/old.txt ~/new.txt > ~/changes.txt
+        - "diff prints the lines that differ (< banana, > blueberry); redirect the output into ~/changes.txt."

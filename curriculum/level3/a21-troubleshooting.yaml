@@ -1,0 +1,198 @@
+id: a21-troubleshooting
+level: advanced
+module: operations
+title: Troubleshooting complex system problems
+duration: 50
+objectives:
+  - Diagnose faults with several interacting causes
+  - Use strace, lsof and ss to see what a process really does
+  - Correlate evidence from logs, processes, files and network
+  - Restore service with minimal risk and document the root cause
+
+sections:
+  - title: When the obvious check passes
+    content: |
+      Complex failures often have **more than one cause**, or a cause far from the symptom:
+      a web page fails because a disk is full because log rotation broke because a config
+      file was edited.  Keep asking **"why?"** until you reach something you can fix
+      permanently - the **root cause**.
+
+      Keep notes as you go: what you checked, what you saw, what you changed.  It prevents
+      going in circles and becomes the incident report.
+  - title: Seeing inside processes
+    content: |
+      | Tool | Shows |
+      |---|---|
+      | `strace -f -e trace=file,network -p PID` | the system calls a process makes - which files it tries to open, which fail |
+      | `strace -o /tmp/t.log cmd` | trace a command from the start |
+      | `lsof -p PID` | open files and sockets of a process |
+      | `lsof -i :8080` | which process uses a port |
+      | `ss -tanp` | all TCP connections with states and processes |
+      | `cat /proc/PID/environ \| tr '\0' '\n'` | a process's environment |
+      | `ls -l /proc/PID/cwd /proc/PID/exe` | its working directory and binary |
+
+      A typical win: `strace` shows `open("/etc/app/key.pem") = -1 EACCES` - the real reason
+      behind a vague "startup failed".
+    examples:
+      - command: strace -e trace=openat cat /etc/hostname
+        explanation: Watch cat open its file.
+      - command: sudo lsof -i -P -n | head
+        explanation: Network files of all processes.
+  - title: Systematic isolation
+    content: |
+      * **Reproduce** the problem on demand.
+      * **Halve the search space**: does it fail locally?  As root?  With the default config?
+        With the previous version?
+      * **Change one variable at a time** and keep the change only if it helps.
+      * **Compare** with a working system: `diff` configs, package versions (`dpkg -l`).
+      * **Timeline**: `journalctl --since`, `ls -lt /etc`, `/var/log/apt/history.log` - what
+        changed just before it broke?
+
+exercises:
+  - id: multi-fault
+    title: The service that keeps failing
+    instructions: |
+      **inventory.service** should run a small web API on port **8090** as the user
+      **inventory**.  It fails.  There are **several** problems.  Find and fix them so that the
+      service is **active** and `curl -s http://127.0.0.1:8090/` returns the inventory page.
+
+      Rules: do not run the service as root and do not edit **/usr/local/bin/inventory-api**.
+      You may change the unit, configuration, files and permissions.
+    setup: |
+      id inventory >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin inventory
+      mkdir -p /etc/inventory /var/lib/inventory
+      cat > /usr/local/bin/inventory-api <<'EOF'
+      #!/bin/bash
+      conf=/etc/inventory/api.conf
+      [ -r "$conf" ] || { echo "cannot read $conf" >&2; exit 1; }
+      . "$conf"
+      [ -d "$DATA_DIR" ] || { echo "data dir $DATA_DIR missing" >&2; exit 1; }
+      echo "<h1>Inventory</h1>" > "$DATA_DIR/index.html" || { echo "cannot write to $DATA_DIR" >&2; exit 1; }
+      exec python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$DATA_DIR"
+      EOF
+      chmod 755 /usr/local/bin/inventory-api; md5sum /usr/local/bin/inventory-api > /root/.inv.md5
+      printf 'PORT=8090\nDATA_DIR=/var/lib/inventry\n' > /etc/inventory/api.conf
+      chmod 600 /etc/inventory/api.conf; chown root:root /etc/inventory/api.conf
+      chown root:root /var/lib/inventory; chmod 755 /var/lib/inventory
+      printf '[Unit]\nDescription=Inventory API\n[Service]\nUser=inventory\nExecStart=/usr/local/bin/inventory-api\nRestart=no\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/inventory.service
+      systemctl daemon-reload; systemctl restart inventory 2>/dev/null; true
+    cleanup: systemctl stop inventory 2>/dev/null || true
+    reference: |
+      sudo chgrp inventory /etc/inventory/api.conf && sudo chmod 640 /etc/inventory/api.conf
+      sudo sed -i 's|/var/lib/inventry|/var/lib/inventory|' /etc/inventory/api.conf
+      sudo chown inventory: /var/lib/inventory
+      sudo systemctl restart inventory; sleep 1
+    checks:
+      - {type: service_active, name: inventory}
+      - {type: command, run: "sleep 1; curl -s -m 3 http://127.0.0.1:8090/", stdout_contains: Inventory,
+         fail: "http://127.0.0.1:8090/ does not return the inventory page."}
+      - {type: command, run: "systemctl show -p User --value inventory", stdout_equals: inventory,
+         fail: "The service no longer runs as the inventory user."}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.inv.md5", exit_code: 0, fail: "/usr/local/bin/inventory-api was modified."}
+      - {type: mode, path: /etc/inventory/api.conf, lacks: o+r, fail: "api.conf was made world-readable - grant access to the service's group instead."}
+    hints:
+      - "Start with systemctl status inventory and journalctl -u inventory. Fix one error, restart, read the next error."
+      - "Three faults: the config file permissions (the service user cannot read it), a typo in DATA_DIR, and the ownership of the data directory."
+      - "sudo chgrp inventory /etc/inventory/api.conf; sudo chmod 640 ...; fix the path typo; sudo chown inventory: /var/lib/inventory"
+      - "Each restart reveals the next message: 'cannot read', then 'data dir ... missing', then 'cannot write'. This is how layered faults usually unfold."
+  - id: strace
+    title: What file is it looking for?
+    instructions: |
+      The program **/usr/local/bin/mystery-tool** exits with only `error: startup failed`.
+      Use **strace** to find out which **configuration file** it tries (and fails) to open,
+      then create that file (empty is fine) so that the tool prints `ready`.
+      Type the path of the file in the answer box too.
+    answer_prompt: "Missing file:"
+    setup: |
+      n=$(( RANDOM % 9000 + 1000 )); echo "/etc/mystery/conf-$n.d/settings.ini" > /root/.mystery
+      rm -rf /etc/mystery; mkdir -p /etc/mystery/conf-$n.d; chmod 777 /etc/mystery/conf-$n.d
+      cat > /usr/local/bin/mystery-tool <<EOF
+      #!/usr/bin/python3
+      import sys
+      try:
+          open("/etc/mystery/conf-$n.d/settings.ini").close()
+      except OSError:
+          print("error: startup failed"); sys.exit(1)
+      print("ready")
+      EOF
+      chmod 755 /usr/local/bin/mystery-tool
+    reference: strace -f -e trace=openat mystery-tool
+    solution: touch "$(sudo cat /root/.mystery)"
+    checks:
+      - {type: command, run: mystery-tool, user: student, stdout_equals: ready}
+      - {type: answer, command: "cat /root/.mystery"}
+    hints:
+      - strace shows every file a program tries to open.
+      - "strace -e trace=openat mystery-tool - look for ENOENT near the end."
+      - strace -e trace=openat mystery-tool 2>&1 | grep ENOENT | tail
+      - "The last ENOENT for a settings.ini is the culprit; touch that path (the directory is writable for this exercise)."
+
+quiz:
+  questions:
+    - id: q-root
+      type: mcq
+      topic: When the obvious check passes
+      prompt: What is a root cause?
+      options: [The first error in the log, The underlying reason which, if fixed, prevents the problem from recurring, The process running as root, The last change made]
+      answer: 1
+    - id: q-strace
+      type: interpret
+      topic: Seeing inside processes
+      prompt: What does this strace line tell you?
+      output: 'openat(AT_FDCWD, "/etc/app/key.pem", O_RDONLY) = -1 EACCES (Permission denied)'
+      options: [The file does not exist, The file exists but the process lacks permission to read it, The disk is full, The network is down]
+      answer: 1
+    - id: q-lsof
+      type: short
+      topic: Seeing inside processes
+      prompt: Which lsof syntax shows the process using TCP port 8080?
+      answer: ["lsof -i :8080", "sudo lsof -i :8080", "lsof -i tcp:8080", "re:(sudo\\s+)?lsof\\s+-i\\s*(tcp)?:8080"]
+    - id: q-timeline
+      type: mcq
+      topic: Systematic isolation
+      prompt: A server broke at 14:05 today.  Which is the most useful first question?
+      options: ["Who is to blame?", "What changed shortly before 14:05?", "Which kernel is installed?", "How much RAM is free?"]
+      answer: 1
+    - id: q-onevar
+      type: truefalse
+      topic: Systematic isolation
+      prompt: When testing hypotheses, changing several settings at once speeds up troubleshooting reliably.
+      answer: false
+    - id: q-layer
+      type: troubleshoot
+      topic: When the obvious check passes
+      prompt: |
+        A website returns 502.  nginx is running.  The backend app's service shows "active",
+        but `ss -tlnp` shows nothing on its port 9000.  Next step?
+      options: [Restart nginx, Check the app's logs/config - it may be listening elsewhere or failing internally, Reboot, Open port 9000 in the firewall]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Port conflict
+      topic: Seeing inside processes
+      prompt: |
+        **webapp.service** cannot start: "Address already in use" on port **8095**.  A stray
+        process (not a service) occupies the port.  Find and stop it, then start webapp.service
+        so it is active and listening on 8095.
+      setup: |
+        pkill -f '^python3 -m http.server 8095' 2>/dev/null
+        printf '[Service]\nExecStart=/usr/bin/python3 -m http.server 8095 --directory /var/tmp\n' > /etc/systemd/system/webapp.service
+        systemctl daemon-reload; systemctl stop webapp 2>/dev/null
+        cp "$(readlink -f /usr/bin/nc)" /usr/local/bin/leftover-test; nohup /usr/local/bin/leftover-test -lk -p 8095 >/dev/null 2>&1 &
+        sleep 0.5; systemctl start webapp 2>/dev/null; true
+      cleanup: systemctl stop webapp 2>/dev/null; pkill -x leftover-test || true
+      reference: |
+        sudo kill $(sudo lsof -t -i :8095 | head -1)
+        sleep 0.5; sudo systemctl restart webapp; sleep 1
+      solution: |
+        sudo pkill -x leftover-test; sleep 0.5; sudo systemctl restart webapp; sleep 1
+      checks:
+        - {type: service_active, name: webapp}
+        - {type: process_absent, pattern: leftover-test}
+        - {type: port_listening, port: 8095}
+      hints:
+        - Find which process holds the port.
+        - "sudo ss -tlnp 'sport = :8095' or sudo lsof -i :8095"
+        - "sudo lsof -i :8095   then   sudo kill PID   and   sudo systemctl restart webapp"
+        - "After removing the stray listener the service binds the port successfully."

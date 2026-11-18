@@ -1,0 +1,202 @@
+id: b17-pipes-redirection
+level: beginner
+module: working
+title: Introduction to pipes and redirection
+duration: 30
+objectives:
+  - Describe standard input, standard output and standard error
+  - Redirect output and errors into files
+  - Feed a file into a command's input
+  - Connect commands with pipes to build small tools
+
+sections:
+  - title: Three standard streams
+    content: |
+      Every program starts with three connections, called **streams**:
+
+      ```
+                         +-----------+
+      stdin  (0) ------> |  program  | ------> stdout (1)   normal output
+       keyboard          |           | ------> stderr (2)   error messages
+                         +-----------+
+      ```
+
+      By default stdin is your keyboard and both outputs go to your terminal.  The
+      shell can **redirect** each stream - to a file, or to another program.  This
+      simple idea is one of the most powerful features of Unix.
+  - title: Redirecting output
+    content: |
+      | Syntax | Meaning |
+      |---|---|
+      | `cmd > file` | stdout into file (overwrite) |
+      | `cmd >> file` | stdout appended to file |
+      | `cmd 2> file` | stderr into file |
+      | `cmd > file 2>&1` | both stdout and stderr into file |
+      | `cmd &> file` | same, bash shorthand |
+      | `cmd 2> /dev/null` | throw error messages away |
+
+      `/dev/null` is a special file that discards everything written to it.
+
+      ```
+      $ ls /etc /nonexistent > out.txt 2> errors.txt
+      $ cat errors.txt
+      ls: cannot access '/nonexistent': No such file or directory
+      ```
+    examples:
+      - command: ls /etc /nonexistent > out.txt 2> errors.txt
+        explanation: Output and errors go to different files.
+      - command: find /etc -name "*.conf" 2> /dev/null
+        explanation: Hide the Permission denied messages.
+  - title: Redirecting input
+    content: |
+      `<` feeds a file into a command's standard input:
+
+      ```
+      $ wc -l < /etc/passwd
+      34
+      $ sort < names.txt
+      ```
+
+      Many commands accept a file name *or* read stdin, so `wc -l /etc/passwd` works
+      too - but notice the difference: with `<`, wc does not know the file name and
+      prints only the number.
+  - title: Pipes
+    content: |
+      The **pipe** `|` connects the stdout of one command to the stdin of the next.
+      No temporary files are needed:
+
+      ```
+      $ ls /usr/bin | wc -l              # how many programs?
+      1043
+      $ cat /etc/passwd | sort | head -3 # first three accounts alphabetically
+      ```
+
+      Each program does one small job well; pipes combine them.  This is the **Unix
+      philosophy**.
+
+      :::tip
+      Build pipelines step by step.  Run the first command, look at its output, add
+      the next `| command`, look again.
+      :::
+    examples:
+      - command: ls /usr/bin | wc -l
+        explanation: Count the programs in /usr/bin.
+      - command: history | tail -5
+        explanation: Your last five commands.
+      - command: ps aux | less
+        explanation: Browse the process list page by page.
+    more: |
+      Only stdout goes through a pipe; stderr still appears on the terminal.  To send
+      both, use `cmd 2>&1 | next` or bash's `cmd |& next`.  The `tee` command copies its
+      input both to a file and to stdout: `ls | tee listing.txt | wc -l`.
+
+exercises:
+  - id: errors-only
+    title: Separate output from errors
+    instructions: |
+      Run `ls /etc/hostname /etc/missing-file` so that the **normal output** goes into
+      **~/out.txt** and the **error message** goes into **~/err.txt**.
+    setup: rm -f {home}/out.txt {home}/err.txt
+    reference: ls /etc/hostname /etc/missing-file > ~/out.txt 2> ~/err.txt
+    checks:
+      - {type: file_contains, path: ~/out.txt, text: /etc/hostname}
+      - {type: file_contains, path: ~/err.txt, text: No such file or directory}
+      - {type: file_not_contains, path: ~/out.txt, text: No such file, fail: The error message ended up in out.txt - errors are stream 2.}
+    hints:
+      - Output and errors are two separate streams that can be redirected separately.
+      - "> redirects stdout, 2> redirects stderr."
+      - ls /etc/hostname /etc/missing-file > ~/out.txt 2> ~/err.txt
+      - "stdout (stream 1) goes to out.txt with >, stderr (stream 2) to err.txt with 2>."
+  - id: count-users
+    title: Count with a pipe
+    instructions: |
+      How many lines in **/etc/passwd** contain the text **nologin**?  Use a pipe (or
+      any method) and type the number.
+    answer_prompt: "Number of nologin accounts:"
+    reference: grep nologin /etc/passwd | wc -l
+    checks:
+      - {type: answer, command: "grep -c nologin /etc/passwd"}
+    hints:
+      - First select the matching lines, then count them.
+      - grep selects lines containing a word; wc -l counts lines.
+      - grep nologin /etc/passwd | wc -l
+      - "grep prints only lines containing nologin; the pipe sends them to wc -l which counts them. grep -c nologin /etc/passwd also counts."
+  - id: pipeline-file
+    title: Build a pipeline
+    instructions: |
+      Create **~/biggest.txt** containing the names of the **5 largest files** in
+      **/usr/bin**, largest first - one name per line, *just the names*.
+
+      Tip: `ls -S` sorts by size and `head` keeps the first lines.
+    setup: rm -f {home}/biggest.txt
+    reference: ls -S /usr/bin | head -5 > ~/biggest.txt
+    alternatives: ['ls -S /usr/bin | head -n 5 | tee ~/biggest.txt']
+    checks:
+      - {type: file_matches_command, path: ~/biggest.txt, command: "ls -S /usr/bin | head -5",
+         fail: "~/biggest.txt should contain exactly the five largest names from ls -S /usr/bin."}
+    hints:
+      - List the directory sorted by size, keep five lines, save them.
+      - ls -S sorts by size; | head -5 keeps five; > saves.
+      - ls -S /usr/bin | head -5 > ~/biggest.txt
+      - "ls -S lists largest first; head -5 keeps the top five; > writes them into the file."
+
+quiz:
+  questions:
+    - id: q-stderr
+      type: mcq
+      topic: Three standard streams
+      prompt: Which stream number is standard error?
+      options: ["0", "1", "2", "3"]
+      answer: 2
+    - id: q-devnull
+      type: mcq
+      topic: Redirecting output
+      prompt: How do you discard the error messages of a command?
+      options: [cmd > /dev/null, cmd 2> /dev/null, cmd < /dev/null, cmd | /dev/null]
+      answer: 1
+    - id: q-pipe
+      type: truefalse
+      topic: Pipes
+      prompt: A pipe sends the standard output of the left command to the standard input of the right command.
+      answer: true
+    - id: q-both
+      type: interpret
+      topic: Redirecting output
+      prompt: After this command, where are the error messages?
+      output: "$ make > build.log 2>&1"
+      options: [On the screen, In build.log together with normal output, Discarded, In a file called 1]
+      answer: 1
+    - id: q-overwrite
+      type: troubleshoot
+      topic: Redirecting output
+      prompt: |
+        A script runs `date > log.txt` every hour, but log.txt only ever contains one line.
+        Why?
+      options: [date only prints one line, "> overwrites the file each time; >> would append", log.txt is read-only, The script fails]
+      answer: 1
+    - id: q-philosophy
+      type: mcq
+      topic: Pipes
+      prompt: What is the idea behind combining small tools with pipes?
+      options:
+        - Each program does one job well; complex tasks are built by combining them
+        - Pipes make programs run faster on multi-core CPUs
+        - Pipes are needed because programs cannot read files
+        - It is a way to run commands as root
+      answer: 0
+    - id: q-practical
+      type: practical
+      title: Save a sorted list
+      topic: Pipes
+      prompt: |
+        Create **~/shells-sorted.txt** containing the lines of **/etc/shells** that begin
+        with `/`, **sorted alphabetically**.
+      setup: rm -f {home}/shells-sorted.txt
+      reference: grep '^/' /etc/shells | sort > ~/shells-sorted.txt
+      checks:
+        - {type: file_matches_command, path: ~/shells-sorted.txt, command: "grep '^/' /etc/shells | sort"}
+      hints:
+        - Filter the lines, then sort them, then save.
+        - "grep '^/' selects lines starting with a slash; sort sorts; > saves."
+        - grep '^/' /etc/shells | sort > ~/shells-sorted.txt
+        - "The pipe passes grep's output to sort; the final > writes the sorted result into the file."

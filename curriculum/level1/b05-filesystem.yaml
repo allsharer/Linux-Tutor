@@ -1,0 +1,197 @@
+id: b05-filesystem
+level: beginner
+module: filesystem
+title: Understanding the Linux filesystem
+duration: 25
+objectives:
+  - Describe the single directory tree that starts at /
+  - Explain the purpose of the main top-level directories
+  - Understand that "everything is a file" in Linux
+  - List directory contents with ls
+
+sections:
+  - title: One tree, one root
+    content: |
+      Windows gives each disk a letter: `C:`, `D:`.  Linux does not.  Everything -
+      every disk, USB stick and network share - appears somewhere in **one single
+      tree of directories** that begins at the **root directory**, written as a
+      single slash: `/`.
+
+      ```
+      /
+      ├── bin -> usr/bin      programs (commands)
+      ├── boot                the kernel and boot loader files
+      ├── dev                 device files (disks, terminals...)
+      ├── etc                 system configuration
+      ├── home                users' home directories
+      │   └── student         <- your home
+      ├── root                the administrator's home
+      ├── tmp                 temporary files (cleared at boot)
+      ├── usr                 installed software and libraries
+      └── var                 variable data: logs, caches, mail, databases
+      ```
+
+      Another disk is attached ("mounted") at a directory in this tree - for example
+      `/media/usb`.  You will learn about mounting in the Intermediate level.
+  - title: The important directories
+    content: |
+      The layout follows the **Filesystem Hierarchy Standard (FHS)**, so it is almost
+      identical on every distribution.
+
+      | Directory | What lives there |
+      |---|---|
+      | `/etc` | Configuration files - mostly plain text you can read |
+      | `/home` | One directory per user: `/home/student` |
+      | `/root` | Home of the administrator account, root |
+      | `/usr/bin` | Most user commands (`/bin` is a link to it on modern systems) |
+      | `/usr/sbin` | System administration commands |
+      | `/var/log` | Log files - the first place to look when something goes wrong |
+      | `/tmp` | Temporary files; anyone may write here |
+      | `/dev` | Devices, represented as files |
+      | `/proc`, `/sys` | Virtual files describing the running kernel and hardware |
+
+      :::tip
+      Remember three: **/etc** for configuration, **/var/log** for logs and **/home**
+      for users.  They answer most "where is...?" questions.
+      :::
+  - title: Everything is a file
+    content: |
+      A central Unix idea: almost everything is represented as a **file**.  Documents
+      are files, programs are files, but so are disks (`/dev/sda`), terminals
+      (`/dev/pts/0`) and even information about the kernel (`/proc/cpuinfo`).
+
+      This means the same small set of tools - list, read, copy, write - works on all
+      of them.  For example, reading `/proc/uptime` tells you how long the system has
+      been running:
+
+      ```
+      $ cat /proc/uptime
+      3627.15 7015.33
+      ```
+    more: |
+      /proc and /sys are *virtual* filesystems: their files are not stored on any disk.
+      When you read them, the kernel generates the content on the fly.  That is why
+      `ls -l /proc/cpuinfo` shows a size of 0 although `cat` prints lots of text.
+  - title: Looking around with ls
+    content: |
+      `ls` lists the contents of a directory.  Without arguments it lists the current
+      directory; with a path it lists that directory.
+
+      ```
+      $ ls /
+      bin  boot  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+      $ ls /home
+      student
+      ```
+
+      Useful options:
+
+      * `ls -l` - **long** format: permissions, owner, size, date
+      * `ls -a` - show **all** files, including *hidden* ones whose names begin with `.`
+      * `ls -h` - with `-l`, show sizes in **human-readable** units (K, M, G)
+
+      Options can be combined: `ls -lah`.
+    examples:
+      - command: ls /
+        explanation: The top-level directories.
+      - command: ls -l /etc/hostname
+        explanation: Long listing of one file.
+      - command: ls -a ~
+        explanation: All files in your home, including hidden "dot files".
+
+exercises:
+  - id: count-etc
+    title: Explore /etc
+    instructions: |
+      How many entries does **/etc** contain whose names end in **.conf**, directly
+      inside /etc (not in sub-directories)?  Type the number.
+    answer_prompt: "Number of .conf entries:"
+    reference: ls -d /etc/*.conf
+    checks:
+      - {type: answer, command: "ls -d /etc/*.conf | wc -l"}
+    hints:
+      - List the directory and count the names ending in .conf.
+      - ls can list /etc. A * pattern can select names ending in .conf.
+      - ls -d /etc/*.conf
+      - "ls -d /etc/*.conf lists only the .conf entries; count them. (ls -d /etc/*.conf | wc -l counts automatically - you will learn this soon.)"
+  - id: hidden
+    title: Find the hidden file
+    instructions: |
+      Your home directory contains a **hidden** file whose name starts with
+      `.secret`.  Find it and type its **content** (a single word) into the answer box.
+    answer_prompt: "Content of the hidden file:"
+    setup: |
+      rm -f {home}/.secret*
+      echo tux > {home}/.secret-note && chown student: {home}/.secret-note
+    reference: ls -a ~ && cat ~/.secret-note
+    test_answer: tux
+    checks:
+      - {type: answer, equals: tux}
+    hints:
+      - Hidden files are not shown by plain ls.
+      - ls -a shows hidden files (names starting with a dot).
+      - ls -a ~   then   cat ~/.secret-note
+      - "ls -a ~ reveals .secret-note; cat ~/.secret-note prints tux."
+
+quiz:
+  questions:
+    - id: q-root
+      type: mcq
+      topic: One tree, one root
+      prompt: What is the root directory of the Linux filesystem called?
+      options: ["C:", "/root", "/", "/home"]
+      answer: 2
+      explanation: "/ is the root of the tree. /root is the home directory of the root user - a different thing."
+    - id: q-etc
+      type: mcq
+      topic: The important directories
+      prompt: Where would you expect to find system configuration files?
+      options: [/usr/bin, /etc, /var/log, /dev]
+      answer: 1
+    - id: q-logs
+      type: mcq
+      topic: The important directories
+      prompt: A service has failed and you want to read its log files.  Where do you look first?
+      options: [/tmp, /var/log, /boot, /home]
+      answer: 1
+    - id: q-hidden
+      type: truefalse
+      topic: Looking around with ls
+      prompt: Files whose names begin with a dot are hidden from a plain ls.
+      answer: true
+    - id: q-file
+      type: truefalse
+      topic: Everything is a file
+      prompt: In Linux, devices such as disks and terminals are represented as files in /dev.
+      answer: true
+    - id: q-ls-l
+      type: interpret
+      topic: Looking around with ls
+      prompt: Which command most likely produced this output?
+      output: |
+        drwxr-xr-x 2 student student 4096 Mar  3 10:12 Documents
+        -rw-r--r-- 1 student student  220 Mar  3 10:10 notes.txt
+      options: [ls, ls -a, ls -l, ls -h]
+      answer: 2
+    - id: q-practical
+      type: practical
+      title: Read from /proc
+      topic: Everything is a file
+      prompt: |
+        The kernel reports the CPU model name in the virtual file **/proc/cpuinfo**.
+        How many processor entries (lines beginning with `processor`) does it list?
+      answer_prompt: "Number of processors:"
+      reference: cat /proc/cpuinfo
+      checks:
+        - {type: answer, command: "grep -c ^processor /proc/cpuinfo"}
+      hints:
+        - The file is just text - display it.
+        - cat /proc/cpuinfo, then look for lines starting with "processor".
+        - cat /proc/cpuinfo
+        - "Each logical CPU appears as a block starting with 'processor : N'. Count them, or run nproc."
+
+references:
+  - title: Filesystem Hierarchy Standard
+    url: https://refspecs.linuxfoundation.org/fhs.shtml
+  - title: hier(7) - description of the filesystem hierarchy
+    url: https://man7.org/linux/man-pages/man7/hier.7.html

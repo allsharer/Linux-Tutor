@@ -1,0 +1,176 @@
+id: a14-ssh-admin
+level: advanced
+module: network
+title: SSH administration and security
+duration: 40
+objectives:
+  - Configure sshd with drop-in files and validate the configuration
+  - Disable password and root logins safely
+  - Restrict who may log in
+  - Use tunnels, jump hosts and fail2ban-style protection
+
+sections:
+  - title: sshd configuration
+    content: |
+      The server reads **/etc/ssh/sshd_config**, which on Ubuntu includes
+      **/etc/ssh/sshd_config.d/*.conf** first.  Put your settings in a drop-in:
+
+      ```
+      # /etc/ssh/sshd_config.d/50-hardening.conf
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      PubkeyAuthentication yes
+      AllowGroups ssh-users
+      MaxAuthTries 3
+      ```
+
+      :::important
+      For most keywords the **first** value sshd reads wins - which is why drop-ins,
+      read before the main file, take precedence.
+      :::
+
+      Validate before restarting: `sudo sshd -t` (syntax), `sudo sshd -T` (the full
+      effective configuration).  Then `sudo systemctl reload ssh`.
+  - title: Hardening without locking yourself out
+    content: |
+      1. Make sure **key login works** for your admin account.
+      2. Keep your current session open.
+      3. Change the configuration, run `sshd -t`, reload.
+      4. Test a **new** login from another terminal before closing the old one.
+
+      Further measures: limit users (`AllowUsers`/`AllowGroups`), change nothing you do not
+      understand, keep OpenSSH updated, use **fail2ban** (bans IPs after repeated failures)
+      or rate-limit port 22 in the firewall, consider two-factor authentication.
+  - title: Tunnels and jump hosts
+    content: |
+      ```
+      ssh -L 5432:db.internal:5432 admin@bastion     # local forward: localhost:5432 -> db via bastion
+      ssh -R 8080:localhost:3000 user@server         # remote forward: server:8080 -> your :3000
+      ssh -D 1080 user@server                        # SOCKS proxy
+      ssh -J bastion admin@db.internal               # jump through a bastion host
+      ```
+
+      In ~/.ssh/config: `ProxyJump bastion`.  On the server, `AllowTcpForwarding no`
+      disables tunnels for users who should not have them.
+
+exercises:
+  - id: harden
+    title: Harden sshd
+    instructions: |
+      Create **/etc/ssh/sshd_config.d/50-hardening.conf** so that the effective sshd
+      configuration has:
+
+      * `PermitRootLogin no`
+      * `PasswordAuthentication no`
+      * `MaxAuthTries 3`
+
+      The configuration must be valid (`sshd -t`) and the ssh service must be **running**
+      with it (reload or restart after the change).
+    setup: |
+      rm -f /etc/ssh/sshd_config.d/50-hardening.conf; systemctl restart ssh
+    reference: |
+      printf 'PermitRootLogin no\nPasswordAuthentication no\nMaxAuthTries 3\n' | sudo tee /etc/ssh/sshd_config.d/50-hardening.conf
+      sudo sshd -t && sudo systemctl reload ssh
+    checks:
+      - {type: file_exists, path: /etc/ssh/sshd_config.d/50-hardening.conf}
+      - {type: command, run: "sshd -t && echo ok", stdout_equals: ok, fail: "sshd -t reports a configuration error."}
+      - {type: command, run: "sshd -T | grep -Ei '^(permitrootlogin|passwordauthentication|maxauthtries) ' | sort",
+         stdout_equals: "maxauthtries 3\npasswordauthentication no\npermitrootlogin no"}
+      - {type: service_active, name: ssh}
+      - type: command
+        run: "p=$(systemctl show -p MainPID --value ssh); c=$(stat -c %Y /etc/ssh/sshd_config.d/50-hardening.conf); s=$(date -d \"$(ps -o lstart= -p $p)\" +%s); r=$(journalctl -u ssh --since @$c -o cat --no-pager | grep -ci 'reload' || true); [ \"$s\" -ge \"$c\" ] || [ \"$r\" -gt 0 ] && echo applied"
+        stdout_equals: applied
+        fail: "The running sshd has not loaded the new configuration yet - reload or restart the ssh service."
+    hints:
+      - Write three settings into a drop-in file, test, reload.
+      - "sshd -T prints the effective configuration in lower case."
+      - "printf 'PermitRootLogin no\\nPasswordAuthentication no\\nMaxAuthTries 3\\n' | sudo tee /etc/ssh/sshd_config.d/50-hardening.conf"
+      - "Then sudo sshd -t && sudo systemctl reload ssh. On a real server, test a new login before closing your session."
+  - id: allow-group
+    title: Only the ssh-users group
+    instructions: |
+      Restrict SSH logins to members of the group **ssh-users** (create the group if needed)
+      and add **student** to that group, so that student keeps access.  Put the setting in a
+      drop-in file in /etc/ssh/sshd_config.d/ and make sure the configuration is valid.
+    setup: |
+      rm -f /etc/ssh/sshd_config.d/*allow*.conf /etc/ssh/sshd_config.d/60-*.conf
+      getent group ssh-users >/dev/null && gpasswd -d student ssh-users >/dev/null 2>&1; true
+    reference: |
+      sudo groupadd -f ssh-users
+      sudo usermod -aG ssh-users student
+      echo 'AllowGroups ssh-users' | sudo tee /etc/ssh/sshd_config.d/60-allow.conf
+      sudo sshd -t && sudo systemctl reload ssh
+    checks:
+      - {type: command, run: "sshd -T | grep -i '^allowgroups'", stdout_contains: ssh-users}
+      - {type: user_in_group, user: student, group: ssh-users, fail: "student is not in ssh-users - student would be locked out!"}
+      - {type: command, run: "sshd -t && echo ok", stdout_equals: ok}
+    hints:
+      - "AllowGroups GROUP in a drop-in; the admin must be in the group."
+      - groupadd, usermod -aG, then the drop-in.
+      - "echo 'AllowGroups ssh-users' | sudo tee /etc/ssh/sshd_config.d/60-allow.conf"
+      - "Add student first (sudo usermod -aG ssh-users student) - otherwise you could lock yourself out."
+
+quiz:
+  questions:
+    - id: q-test
+      type: short
+      topic: sshd configuration
+      prompt: Which command checks the sshd configuration for syntax errors without restarting?
+      answer: ["sshd -t", "sudo sshd -t"]
+    - id: q-first
+      type: truefalse
+      topic: sshd configuration
+      prompt: For most sshd keywords, the first value read wins.
+      answer: true
+    - id: q-order
+      type: mcq
+      topic: Hardening without locking yourself out
+      prompt: Before setting PasswordAuthentication no, what must you verify?
+      options: [That root can log in, That key-based login works for your account, That the firewall is off, That port 22 is closed]
+      answer: 1
+    - id: q-tunnel
+      type: interpret
+      topic: Tunnels and jump hosts
+      prompt: What does this command do?
+      output: "ssh -L 8443:intranet.local:443 alice@bastion"
+      options:
+        - Opens port 8443 on bastion
+        - Connections to localhost:8443 on your machine are forwarded through bastion to intranet.local:443
+        - Forwards bastion's port 443 to your port 8443 permanently
+        - Starts a web server
+      answer: 1
+    - id: q-jump
+      type: mcq
+      topic: Tunnels and jump hosts
+      prompt: Which option connects to db.internal through the bastion host?
+      options: [ssh -D bastion db.internal, ssh -J bastion db.internal, ssh -R bastion db.internal, ssh -X bastion db.internal]
+      answer: 1
+    - id: q-f2b
+      type: mcq
+      topic: Hardening without locking yourself out
+      prompt: What does fail2ban do?
+      options: [Encrypts SSH, Temporarily bans IP addresses after repeated authentication failures, Replaces sshd, Rotates logs]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Change the port
+      topic: sshd configuration
+      prompt: |
+        Make sshd listen on port **2222 instead of 22** using a drop-in file, validate the
+        configuration and restart the service.  Afterwards something must listen on 2222 and
+        nothing on 22.
+      setup: |
+        rm -f /etc/ssh/sshd_config.d/*port*.conf /etc/ssh/sshd_config.d/70-*.conf; systemctl stop ssh.socket 2>/dev/null; systemctl restart ssh
+      cleanup: rm -f /etc/ssh/sshd_config.d/*port*.conf /etc/ssh/sshd_config.d/70-*.conf; systemctl restart ssh || true
+      reference: |
+        echo 'Port 2222' | sudo tee /etc/ssh/sshd_config.d/70-port.conf
+        sudo sshd -t && sudo systemctl restart ssh
+      checks:
+        - {type: port_listening, port: 2222}
+        - {type: not, check: {type: port_listening, port: 22}, fail: "sshd still listens on port 22 as well."}
+      hints:
+        - The Port keyword sets the listening port.
+        - "A drop-in with Port 2222, then sshd -t and restart."
+        - echo 'Port 2222' | sudo tee /etc/ssh/sshd_config.d/70-port.conf && sudo systemctl restart ssh
+        - "ss -tlnp shows sshd on :2222. On a real server, open 2222 in the firewall first!"

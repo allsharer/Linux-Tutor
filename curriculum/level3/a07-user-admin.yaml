@@ -1,0 +1,215 @@
+id: a07-user-admin
+level: advanced
+module: system
+title: User and group administration
+duration: 45
+objectives:
+  - Create, modify, lock and delete accounts with useradd, usermod and userdel
+  - Manage groups and memberships
+  - Configure password ageing with chage
+  - Grant limited administrative rights with sudoers drop-ins
+
+sections:
+  - title: Creating accounts
+    content: |
+      ```
+      sudo useradd -m -s /bin/bash -c "Alice Admin" -G sudo,devteam alice
+      sudo passwd alice
+      ```
+
+      | Option | Meaning |
+      |---|---|
+      | `-m` | create the home directory (copied from /etc/skel) |
+      | `-s` | login shell |
+      | `-c` | comment (full name) |
+      | `-G` | supplementary groups |
+      | `-u` | specific UID |
+      | `-r` | system account (low UID, no ageing) - for services |
+      | `-e YYYY-MM-DD` | account expiry date |
+
+      Ubuntu's interactive `adduser` wraps useradd with prompts.  Defaults come from
+      `/etc/login.defs` and `/etc/default/useradd`.
+  - title: Changing and removing accounts
+    content: |
+      ```
+      sudo usermod -aG docker alice     # ADD to a group (-a is essential!)
+      sudo usermod -s /usr/sbin/nologin svc   # no interactive login
+      sudo usermod -L alice / -U alice  # lock / unlock the password
+      sudo usermod -e 1 alice           # expire the account immediately
+      sudo userdel -r bob               # delete with home directory and mail spool
+      sudo groupadd -g 2000 projects; sudo groupdel projects
+      sudo gpasswd -d alice docker      # remove from a group
+      ```
+
+      :::warning
+      `usermod -G group alice` **without -a** replaces all of alice's supplementary
+      groups - she may lose sudo!  Always use `-aG` to add.
+      :::
+
+      Before deleting a user, find their files elsewhere: `sudo find / -xdev -user bob`.
+  - title: Password policy
+    content: |
+      `chage` controls ageing for an account:
+
+      ```
+      sudo chage -l alice               # show settings
+      sudo chage -M 90 -m 1 -W 14 alice # max 90 days, min 1 day, warn 14 days before
+      sudo chage -d 0 alice             # force a password change at next login
+      ```
+
+      System-wide defaults for new users: `PASS_MAX_DAYS` etc. in /etc/login.defs.
+      Quality rules (length, complexity) are enforced by PAM (`pam_pwquality`).
+  - title: Delegating with sudo
+    content: |
+      Never edit `/etc/sudoers` directly with a plain editor - use **visudo**, which checks
+      the syntax (a broken sudoers file can lock everyone out of sudo).  Better still, add
+      **drop-in files** in `/etc/sudoers.d/`:
+
+      ```
+      # /etc/sudoers.d/webops  (mode 0440)
+      %webops ALL=(root) /usr/bin/systemctl restart nginx, /usr/bin/systemctl reload nginx
+      deploy  ALL=(www-data) NOPASSWD: /usr/local/bin/deploy.sh
+      ```
+
+      Format: `WHO WHERE=(AS_WHOM) COMMANDS`.  `%name` is a group.
+      Check a file: `sudo visudo -cf /etc/sudoers.d/webops`.  See what a user may do:
+      `sudo -l -U alice`.
+
+exercises:
+  - id: create-user
+    title: Onboard a new colleague
+    instructions: |
+      Create the account **maria** with:
+
+      * a home directory **/home/maria** (populated from /etc/skel);
+      * login shell **/bin/bash**;
+      * full name (comment) **Maria Garcia**;
+      * supplementary group **developers** (the group already exists).
+    setup: |
+      userdel -r maria 2>/dev/null; getent group developers >/dev/null || groupadd developers
+    reference: sudo useradd -m -s /bin/bash -c "Maria Garcia" -G developers maria
+    alternatives: ['sudo adduser --disabled-password --gecos "Maria Garcia" maria && sudo usermod -aG developers maria']
+    checks:
+      - {type: user_exists, name: maria, shell: /bin/bash, home: /home/maria, home_exists: true}
+      - {type: command, run: "getent passwd maria | cut -d: -f5 | cut -d, -f1", stdout_equals: Maria Garcia}
+      - {type: user_in_group, user: maria, group: developers}
+      - {type: file_exists, path: /home/maria/.bashrc, fail: "/home/maria was not populated from /etc/skel (use useradd -m)."}
+    hints:
+      - "useradd takes options for the home, shell, comment and groups."
+      - "-m creates the home from /etc/skel; -s shell; -c comment; -G groups."
+      - sudo useradd -m -s /bin/bash -c "Maria Garcia" -G developers maria
+      - "getent passwd maria and id maria confirm the result."
+  - id: add-group
+    title: Add without removing
+    instructions: |
+      User **devops** is in the groups `sudo` and `adm`.  Add **devops** to the group
+      **docker** as well - without removing any existing memberships.
+    setup: |
+      getent group docker >/dev/null || groupadd docker
+      userdel -r devops 2>/dev/null; useradd -m -G sudo,adm devops
+    reference: sudo usermod -aG docker devops
+    alternatives: ['sudo gpasswd -a devops docker', 'sudo adduser devops docker']
+    wrong:
+      - {run: sudo usermod -G docker devops, expect: correct_side_effects}
+    checks:
+      - {type: user_in_group, user: devops, group: docker}
+    constraints:
+      - {type: user_in_group, user: devops, group: sudo, fail: "devops lost membership of sudo - usermod -G without -a replaces the group list!"}
+      - {type: user_in_group, user: devops, group: adm, fail: "devops lost membership of adm."}
+    hints:
+      - "usermod -G alone replaces the list of groups."
+      - "Use -a (append) together with -G, or gpasswd -a."
+      - sudo usermod -aG docker devops
+      - "id devops shows sudo, adm and docker afterwards."
+  - id: sudoers
+    title: Limited sudo rights
+    instructions: |
+      Members of the group **webops** must be allowed to run exactly
+      **/usr/bin/systemctl restart nginx** as root - nothing else.  Create a valid drop-in
+      file **/etc/sudoers.d/webops** for this.  (The tutor checks the syntax with
+      `visudo -c` and what the rule allows.)
+    setup: |
+      rm -f /etc/sudoers.d/webops; getent group webops >/dev/null || groupadd webops
+      id opsuser >/dev/null 2>&1 || useradd -m -G webops opsuser
+    reference: |
+      echo '%webops ALL=(root) /usr/bin/systemctl restart nginx' | sudo tee /etc/sudoers.d/webops
+      sudo chmod 440 /etc/sudoers.d/webops
+    checks:
+      - {type: file_exists, path: /etc/sudoers.d/webops}
+      - {type: command, run: "visudo -cf /etc/sudoers.d/webops", exit_code: 0, fail: "visudo reports a syntax error in /etc/sudoers.d/webops."}
+      - {type: command, run: "sudo -l -U opsuser", stdout_contains: "/usr/bin/systemctl restart nginx",
+         fail: "A member of webops is not allowed to run /usr/bin/systemctl restart nginx."}
+    constraints:
+      - {type: command, run: "sudo -l -U opsuser | grep -E '\\(ALL( : ALL)?\\) ALL|\\(root\\) ALL$' | wc -l", stdout_equals: "0",
+         fail: "The rule grants far more than the single command - members could run anything as root."}
+      - {type: mode, path: /etc/sudoers.d/webops, lacks: "o+w,g+w", fail: "The sudoers file is writable by others - it must be 0440."}
+    hints:
+      - "Rule format: WHO HOSTS=(RUNAS) COMMAND - a group is written %name."
+      - "%webops ALL=(root) /usr/bin/systemctl restart nginx  - in a file under /etc/sudoers.d, mode 0440."
+      - "echo '%webops ALL=(root) /usr/bin/systemctl restart nginx' | sudo tee /etc/sudoers.d/webops && sudo chmod 440 /etc/sudoers.d/webops"
+      - "Or: sudo visudo -f /etc/sudoers.d/webops, which checks the syntax when you save. Verify with sudo -l -U opsuser."
+
+quiz:
+  questions:
+    - id: q-aG
+      type: troubleshoot
+      topic: Changing and removing accounts
+      prompt: After `sudo usermod -G docker alice`, alice can no longer use sudo.  Why?
+      options: [docker conflicts with sudo, -G without -a replaced her supplementary groups, usermod locks the account, sudo cache expired]
+      answer: 1
+    - id: q-visudo
+      type: mcq
+      topic: Delegating with sudo
+      prompt: Why use visudo instead of a normal editor for sudoers?
+      options: [It is faster, It checks syntax before saving - a broken file can disable sudo for everyone, It encrypts the file, It is required by law]
+      answer: 1
+    - id: q-chage
+      type: short
+      topic: Password policy
+      prompt: Which chage command forces user bob to change his password at the next login?
+      answer: ["chage -d 0 bob", "sudo chage -d 0 bob", "re:(sudo\\s+)?chage\\s+(-d|--lastday)\\s*0\\s+bob"]
+    - id: q-system
+      type: mcq
+      topic: Creating accounts
+      prompt: Which useradd option creates a system account for a service?
+      options: [-m, -r, -s, -G]
+      answer: 1
+    - id: q-lock
+      type: truefalse
+      topic: Changing and removing accounts
+      prompt: usermod -L locks the password, but a user could still log in with an SSH key.
+      answer: true
+      explanation: To fully disable an account also expire it (usermod -e 1) or set the shell to nologin.
+    - id: q-rule
+      type: interpret
+      topic: Delegating with sudo
+      prompt: What does this sudoers line allow?
+      output: "deploy ALL=(www-data) NOPASSWD: /usr/local/bin/deploy.sh"
+      options:
+        - deploy may run anything as root
+        - deploy may run /usr/local/bin/deploy.sh as user www-data without a password
+        - www-data may run deploy.sh as deploy
+        - Nothing - the syntax is wrong
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Offboard a user
+      topic: Changing and removing accounts
+      prompt: |
+        **tempuser** has left the company.  Do **not** delete the account yet (an audit is
+        pending) - instead:
+
+        * **lock** its password,
+        * set its login shell to **/usr/sbin/nologin**.
+      setup: |
+        userdel -r tempuser 2>/dev/null; useradd -m -s /bin/bash tempuser; echo 'tempuser:Secret123' | chpasswd
+      reference: sudo usermod -L -s /usr/sbin/nologin tempuser
+      alternatives: ['sudo passwd -l tempuser && sudo chsh -s /usr/sbin/nologin tempuser']
+      checks:
+        - {type: user_exists, name: tempuser, shell: /usr/sbin/nologin}
+        - {type: user_locked, name: tempuser}
+      hints:
+        - Two changes to an existing account.
+        - "usermod -L locks; usermod -s changes the shell."
+        - sudo usermod -L -s /usr/sbin/nologin tempuser
+        - "passwd -S tempuser shows L (locked); getent passwd shows the nologin shell."

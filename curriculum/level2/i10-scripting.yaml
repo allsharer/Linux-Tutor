@@ -1,0 +1,226 @@
+id: i10-scripting
+level: intermediate
+module: shell
+title: Shell scripting fundamentals
+duration: 40
+objectives:
+  - Write, make executable and run a Bash script
+  - Use the shebang line, comments and variables
+  - Read script arguments ($1, $@, $#) and user input (read)
+  - Return meaningful exit statuses
+
+sections:
+  - title: Your first script
+    content: |
+      A **shell script** is a text file containing commands - exactly what you would
+      type at the prompt, saved so it can be repeated.
+
+      ```bash
+      #!/bin/bash
+      # backup.sh - copy my documents to a dated directory
+      dest=~/backup/$(date +%F)
+      mkdir -p "$dest"
+      cp -r ~/Documents "$dest"
+      echo "Backup written to $dest"
+      ```
+
+      * Line 1, the **shebang** `#!/bin/bash`, tells the kernel which interpreter runs
+        the file.
+      * Lines starting with `#` are comments.
+      * Make it executable and run it: `chmod +x backup.sh` then `./backup.sh`.
+        (`bash backup.sh` also works, without the execute bit.)
+  - title: Variables and quoting in scripts
+    content: |
+      ```bash
+      name="world"
+      count=3
+      echo "Hello, $name! You have $count messages."
+      files=$(ls | wc -l)
+      ```
+
+      **Always double-quote variable expansions** (`"$dest"`).  Unquoted, a value
+      containing spaces is split into several words - a classic source of bugs:
+
+      ```bash
+      dir="My Documents"
+      rm -r $dir      # tries to remove "My" and "Documents"!
+      rm -r "$dir"    # correct
+      ```
+
+      Arithmetic uses `$(( ))`: `total=$(( count * 2 + 1 ))`.
+  - title: Arguments and input
+    content: |
+      Arguments given on the command line are available as positional parameters:
+
+      | Parameter | Value |
+      |---|---|
+      | `$0` | the script's name |
+      | `$1`, `$2`, ... | first, second... argument |
+      | `$#` | number of arguments |
+      | `"$@"` | all arguments, each one properly quoted |
+
+      ```bash
+      #!/bin/bash
+      echo "Hello, $1! You gave me $# arguments: $@"
+      ```
+
+      `read` asks the user: `read -p "Your name: " name`.
+    examples:
+      - command: "printf '#!/bin/bash\\necho \"Hi $1, $# args\"\\n' > args.sh; bash args.sh Ada x y"
+        explanation: Creates and runs a tiny argument demo.
+  - title: Exit statuses and safety
+    content: |
+      `exit N` ends the script with status N (0 = success).  Without it, the script's
+      status is that of its last command.
+
+      Robust scripts often start with:
+
+      ```bash
+      #!/bin/bash
+      set -euo pipefail
+      ```
+
+      * `-e` exit immediately if a command fails;
+      * `-u` treat unset variables as errors (catches typos like `$dset`);
+      * `-o pipefail` a pipeline fails if any part fails.
+
+      Debug a script with `bash -x script.sh` - it prints each command before running it.
+      `shellcheck` (a separate tool) finds common mistakes.
+
+exercises:
+  - id: hello-script
+    title: Write a greeting script
+    instructions: |
+      Write an **executable** script **~/greet.sh** that takes a **name as its first
+      argument** and prints exactly:
+
+          Hello, NAME!
+
+      For example `./greet.sh Ada` prints `Hello, Ada!`.
+    setup: rm -f {home}/greet.sh
+    reference: |
+      printf '#!/bin/bash\necho "Hello, $1!"\n' > ~/greet.sh
+      chmod +x ~/greet.sh
+    checks:
+      - {type: script, path: ~/greet.sh, args: [Ada], stdout_equals: "Hello, Ada!"}
+      - {type: script, path: ~/greet.sh, args: [Linus Torvalds], stdout_equals: "Hello, Linus Torvalds!",
+         fail: "With the argument 'Linus Torvalds' (one argument containing a space) the output is wrong - quote \"$1\" or use it inside double quotes."}
+    hints:
+      - The first argument is available in a special variable.
+      - "$1 holds the first argument; echo \"Hello, $1!\" prints it. Don't forget the shebang and chmod +x."
+      - "printf '#!/bin/bash\\necho \"Hello, $1!\"\\n' > ~/greet.sh; chmod +x ~/greet.sh"
+      - "Or write the two lines with nano: #!/bin/bash and echo \"Hello, $1!\" - then chmod +x ~/greet.sh and test ./greet.sh Ada."
+  - id: count-args
+    title: Count and list arguments
+    instructions: |
+      Write an executable script **~/args.sh** that prints the **number of arguments** on the
+      first line, then **each argument on its own line**.
+
+          $ ./args.sh one "two three" four
+          3
+          one
+          two three
+          four
+    setup: rm -f {home}/args.sh
+    reference: |
+      printf '#!/bin/bash\necho "$#"\nfor a in "$@"; do echo "$a"; done\n' > ~/args.sh
+      chmod +x ~/args.sh
+    alternatives: ["printf '#!/bin/bash\\necho $#\\nprintf \"%s\\\\n\" \"$@\"\\n' > ~/args.sh && chmod +x ~/args.sh"]
+    checks:
+      - {type: script, path: ~/args.sh, args: [one, two three, four], stdout_equals: "3\none\ntwo three\nfour"}
+      - {type: script, path: ~/args.sh, args: [], stdout_equals: "0"}
+    hints:
+      - "$# is the count; \"$@\" expands to every argument separately."
+      - Loop over "$@" with for, or print them with printf '%s\n' "$@".
+      - "for a in \"$@\"; do echo \"$a\"; done"
+      - "Quoting \"$@\" keeps 'two three' as one argument; an unquoted $@ would split it."
+  - id: exit-code
+    title: Report success or failure
+    instructions: |
+      Write an executable script **~/checkfile.sh** that takes a file path as its argument and:
+
+      * if the file exists: prints `exists` and exits with status **0**;
+      * otherwise: prints `missing` and exits with status **1**.
+
+      (You may use `if [ -e "$1" ]; then ... else ... fi` - conditions are covered in detail
+      in the next lesson.)
+    setup: rm -f {home}/checkfile.sh
+    reference: |
+      cat > ~/checkfile.sh <<'EOF'
+      #!/bin/bash
+      if [ -e "$1" ]; then
+          echo exists
+          exit 0
+      else
+          echo missing
+          exit 1
+      fi
+      EOF
+      chmod +x ~/checkfile.sh
+    alternatives: ["printf '#!/bin/bash\\n[ -e \"$1\" ] && { echo exists; exit 0; }\\necho missing; exit 1\\n' > ~/checkfile.sh; chmod +x ~/checkfile.sh"]
+    checks:
+      - {type: script, path: ~/checkfile.sh, args: [/etc/passwd], stdout_equals: exists, exit_code: 0}
+      - {type: script, path: ~/checkfile.sh, args: [/no/such/file], stdout_equals: missing, exit_code: 1}
+    hints:
+      - The script must decide based on a test, and set its exit status with exit.
+      - "[ -e path ] tests whether a path exists; exit 1 ends the script with status 1."
+      - "if [ -e \"$1\" ]; then echo exists; exit 0; else echo missing; exit 1; fi"
+      - "Save that logic after a #!/bin/bash line, chmod +x, then test: ./checkfile.sh /etc/passwd; echo $?"
+
+quiz:
+  questions:
+    - id: q-shebang
+      type: mcq
+      topic: Your first script
+      prompt: What is the purpose of the first line `#!/bin/bash`?
+      options: [It is a comment for humans, It tells the kernel which interpreter runs the script, It makes the file executable, It loads ~/.bashrc]
+      answer: 1
+    - id: q-hash
+      type: short
+      topic: Arguments and input
+      prompt: Which special parameter holds the number of arguments given to a script?
+      answer: ["$#"]
+    - id: q-quote
+      type: troubleshoot
+      topic: Variables and quoting in scripts
+      prompt: |
+        A script does `cp $src /backup/`.  It fails when src is "Annual Report.pdf".  Why?
+      options: [cp cannot copy PDFs, $src is unquoted and is split into two words, /backup is missing, Variables cannot contain dots]
+      answer: 1
+    - id: q-sete
+      type: mcq
+      topic: Exit statuses and safety
+      prompt: What does `set -e` do in a script?
+      options: [Enables echo of each command, Exits as soon as a command fails, Exports all variables, Ignores errors]
+      answer: 1
+    - id: q-debug
+      type: mcq
+      topic: Exit statuses and safety
+      prompt: How can you see every command a script executes, as it runs?
+      options: [bash -x script.sh, bash -n script.sh, sh -v only, set +e]
+      answer: 0
+    - id: q-at
+      type: interpret
+      topic: Arguments and input
+      prompt: "The script contains `for a in \"$@\"; do echo \"[$a]\"; done` and is run as ./s.sh 'a b' c.  Output?"
+      options: ["[a] [b] [c]", "[a b] [c]", "[a b c]", "[$@]"]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: A tiny calculator
+      topic: Variables and quoting in scripts
+      prompt: |
+        Write an executable script **~/add.sh** that takes two integers and prints their **sum**
+        (just the number).  `./add.sh 2 40` prints `42`.
+      setup: rm -f {home}/add.sh
+      reference: |
+        printf '#!/bin/bash\necho $(( $1 + $2 ))\n' > ~/add.sh
+        chmod +x ~/add.sh
+      checks:
+        - {type: script, path: ~/add.sh, args: ["2", "40"], stdout_equals: "42"}
+        - {type: script, path: ~/add.sh, args: ["-5", "12"], stdout_equals: "7"}
+      hints:
+        - Use the shell's arithmetic expansion.
+        - "$(( a + b )) computes integer arithmetic."
+        - "echo $(( $1 + $2 ))"
+        - "Put #!/bin/bash and echo $(( $1 + $2 )) in the script and chmod +x it."

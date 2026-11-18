@@ -1,0 +1,179 @@
+id: exam-advanced
+title: Advanced Level Examination
+level: advanced
+sample_from_lessons: 12
+description: |
+  This examination covers the **Advanced** level: advanced scripting and regular
+  expressions, systemd and boot, user administration, ACLs and capabilities, storage,
+  network and firewall configuration, SSH hardening, resource management, the kernel, logs,
+  backup, automation, security hardening and troubleshooting.
+
+  Expect realistic administration tasks.  Verify your own work before submitting.
+
+questions:
+  - id: z-unit
+    type: troubleshoot
+    topic: a05-systemd
+    prompt: You edited /etc/systemd/system/app.service but `systemctl restart app` still runs the old command.  Why?
+    options: [The unit is masked, systemd has not re-read the unit files - run systemctl daemon-reload, The app caches its config, Restart only reloads]
+    answer: 1
+  - id: z-acl
+    type: mcq
+    topic: a08-acls
+    prompt: Which command makes files created in /srv/x in future readable by group qa?
+    options: ["setfacl -m g:qa:r /srv/x", "setfacl -d -m g:qa:r /srv/x", "chmod g+r /srv/x", "chgrp qa /srv/x"]
+    answer: 1
+  - id: z-lvm
+    type: troubleshoot
+    topic: a11-lvm
+    prompt: "`lvextend -L +20G /dev/vg/data` succeeded, but df still shows the old size.  What is missing?"
+    options: [A reboot, Growing the filesystem (resize2fs/xfs_growfs) - or use lvextend -r, vgextend, pvmove]
+    answer: 1
+  - id: z-fw
+    type: interpret
+    topic: a13-firewall
+    prompt: "Over SSH you load this ruleset.  What happens to your session?"
+    output: |
+      table inet filter {
+        chain input { type filter hook input priority 0; policy drop;
+          tcp dport { 80, 443 } accept
+        }
+      }
+    options: [Nothing, It freezes - SSH (22) and established traffic are not accepted, Only new SSH logins fail, The rules are rejected]
+    answer: 1
+
+  - id: z-p1
+    type: practical
+    title: Service with hardening
+    topic: a05-systemd
+    prompt: |
+      Create **metrics.service** that runs `/usr/bin/python3 -m http.server 9100 --bind 127.0.0.1 --directory /var/lib/metrics`
+      as a **dedicated system user `metrics`** (create it, no login shell), with **NoNewPrivileges=yes**,
+      **MemoryMax=128M** and **Restart=on-failure**.  /var/lib/metrics must exist and belong to
+      metrics.  Enable and start the service.
+    setup: |
+      systemctl disable --now metrics 2>/dev/null; rm -f /etc/systemd/system/metrics.service; userdel metrics 2>/dev/null; rm -rf /var/lib/metrics; systemctl daemon-reload
+    cleanup: systemctl disable --now metrics 2>/dev/null || true
+    reference: |
+      sudo useradd -r -s /usr/sbin/nologin metrics
+      sudo install -d -o metrics -g metrics /var/lib/metrics
+      printf '[Unit]\nDescription=Metrics\n[Service]\nUser=metrics\nExecStart=/usr/bin/python3 -m http.server 9100 --bind 127.0.0.1 --directory /var/lib/metrics\nNoNewPrivileges=yes\nMemoryMax=128M\nRestart=on-failure\n[Install]\nWantedBy=multi-user.target\n' | sudo tee /etc/systemd/system/metrics.service
+      sudo systemctl daemon-reload && sudo systemctl enable --now metrics; sleep 1
+    checks:
+      - {type: service_active, name: metrics}
+      - {type: service_enabled, name: metrics}
+      - {type: command, run: "systemctl show -p NoNewPrivileges --value metrics", stdout_equals: "yes"}
+      - {type: command, run: "systemctl show -p MemoryMax --value metrics", stdout_equals: "134217728"}
+      - {type: command, run: "systemctl show -p User --value metrics", stdout_equals: metrics}
+      - {type: owner, path: /var/lib/metrics, user: metrics}
+      - {type: port_listening, port: 9100}
+    hints: [User, directory, unit, enable., "[Service] User=, NoNewPrivileges=yes, MemoryMax=128M, Restart=on-failure", "useradd -r -s /usr/sbin/nologin metrics; install -d -o metrics -g metrics /var/lib/metrics", "Then the unit file, daemon-reload, enable --now."]
+  - id: z-p2
+    type: practical
+    title: Firewall for a web server
+    topic: a13-firewall
+    prompt: |
+      Write **/etc/nftables.conf** for a web server: table **inet filter**, input chain with
+      **policy drop**, accepting established/related traffic, loopback, and TCP ports **22, 80
+      and 443**.  It must pass `nft -c -f`, and the **nftables** service must be enabled.
+      (Do not load it.)
+    setup: |
+      nft flush ruleset; printf '#!/usr/sbin/nft -f\nflush ruleset\n' > /etc/nftables.conf; systemctl disable nftables 2>/dev/null; true
+    cleanup: nft flush ruleset || true
+    reference: |
+      sudo tee /etc/nftables.conf <<'EOF'
+      #!/usr/sbin/nft -f
+      flush ruleset
+      table inet filter {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          ct state established,related accept
+          iif lo accept
+          tcp dport { 22, 80, 443 } accept
+        }
+      }
+      EOF
+      sudo systemctl enable nftables
+    checks:
+      - {type: command, run: "nft -c -f /etc/nftables.conf && echo valid", stdout_equals: valid}
+      - type: command
+        run: "nft flush ruleset; nft -f /etc/nftables.conf && nft list chain inet filter input; nft flush ruleset"
+        stdout_regex: ['policy drop', 'established', 'iif "?lo"? accept', '(22|ssh)', '(80|http)', '(443|https)']
+      - {type: service_enabled, name: nftables}
+    hints: [Same structure as the firewall lesson, with more ports., "tcp dport { 22, 80, 443 } accept", "sudo nft -c -f /etc/nftables.conf checks syntax.", "Then sudo systemctl enable nftables."]
+  - id: z-p3
+    type: practical
+    title: Audit script
+    topic: a03-regex
+    prompt: |
+      Write an executable script **~/audit-users.sh** that prints, sorted, the names of all
+      accounts in **/etc/passwd** that have a **UID of 1000 or more** (excluding `nobody`)
+      **and** a login shell ending in `sh` (bash, sh, zsh...), one per line.
+    setup: |
+      for u in alpha beta; do id $u >/dev/null 2>&1 || useradd -m -s /bin/bash $u; done
+      id gamma >/dev/null 2>&1 || useradd -m -s /usr/sbin/nologin gamma; rm -f {home}/audit-users.sh
+    reference: |
+      printf '#!/bin/bash\nawk -F: '"'"'$3 >= 1000 && $1 != "nobody" && $7 ~ /sh$/ {print $1}'"'"' /etc/passwd | sort\n' > ~/audit-users.sh
+      chmod +x ~/audit-users.sh
+    checks:
+      - {type: script, path: ~/audit-users.sh, stdout_equals: "alpha\nbeta\nstudent"}
+    hints: [awk with a numeric and a regex condition., "-F: ; $3 >= 1000 ; $7 ~ /sh$/", "awk -F: '$3 >= 1000 && $1 != \"nobody\" && $7 ~ /sh$/ {print $1}' /etc/passwd | sort", "nologin ends in 'in', so gamma is excluded."]
+  - id: z-p4
+    type: practical
+    title: Backup with retention
+    topic: a18-backup
+    prompt: |
+      **/backup/daily/** holds dated archives `etc-YYYY-MM-DD.tgz`.  Keep only the **7
+      newest** (by file date) and delete the rest.  Then create today's archive
+      **/backup/daily/etc-<today>.tgz** of **/etc** (relative paths, `etc/...`).
+    setup: |
+      rm -rf /backup/daily; mkdir -p /backup/daily
+      for i in $(seq 1 12); do d=$(date -d "$i days ago" +%F); touch -d "$i days ago" /backup/daily/etc-$d.tgz; done
+    reference: |
+      cd /backup/daily && ls -1t etc-*.tgz | tail -n +8 | xargs -r sudo rm --
+      sudo tar czf /backup/daily/etc-$(date +%F).tgz -C / etc
+    checks:
+      - {type: command, run: "ls /backup/daily | wc -l", stdout_equals: "8", fail: "There should be 8 archives: the 7 newest old ones plus today's."}
+      - {type: command, run: "for i in 1 2 3 4 5 6 7; do test -e /backup/daily/etc-$(date -d \"$i days ago\" +%F).tgz || echo missing; done", stdout_equals: "",
+         fail: "One of the 7 newest archives was deleted."}
+      - {type: command, run: "tar tzf /backup/daily/etc-$(date +%F).tgz | grep -c '^etc/hostname$'", stdout_equals: "1"}
+    hints: [Sort by time, skip the first 7, delete the rest; then tar., "ls -1t | tail -n +8 lists all but the 7 newest.", "ls -1t etc-*.tgz | tail -n +8 | xargs -r sudo rm --", "Then sudo tar czf /backup/daily/etc-$(date +%F).tgz -C / etc"]
+  - id: z-p5
+    type: practical
+    title: Least privilege
+    topic: a09-capabilities
+    prompt: |
+      User **deploy** (create it) must be able to run **/usr/bin/systemctl reload nginx-lab**
+      via sudo **without a password** - nothing else.  Create the sudoers drop-in
+      **/etc/sudoers.d/deploy** (valid, mode 0440).
+    setup: |
+      userdel -r deploy 2>/dev/null; rm -f /etc/sudoers.d/deploy
+    reference: |
+      sudo useradd -m deploy
+      echo 'deploy ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx-lab' | sudo tee /etc/sudoers.d/deploy
+      sudo chmod 440 /etc/sudoers.d/deploy
+    checks:
+      - {type: user_exists, name: deploy}
+      - {type: command, run: "visudo -cf /etc/sudoers.d/deploy", exit_code: 0}
+      - {type: command, run: "sudo -l -U deploy", stdout_regex: 'NOPASSWD: /usr/bin/systemctl reload nginx-lab'}
+      - {type: mode, path: /etc/sudoers.d/deploy, mode: "440"}
+    constraints:
+      - {type: command, run: "sudo -l -U deploy | grep -E '\\) (NOPASSWD: )?ALL$' | wc -l", stdout_equals: "0", fail: "deploy may run everything."}
+    hints: [A sudoers drop-in with NOPASSWD for one command., "deploy ALL=(root) NOPASSWD: /usr/bin/systemctl reload nginx-lab", "echo '...' | sudo tee /etc/sudoers.d/deploy && sudo chmod 440 /etc/sudoers.d/deploy", "visudo -cf checks it."]
+  - id: z-p6
+    type: practical
+    title: Kernel parameter and journal
+    topic: a16-kernel-modules
+    prompt: |
+      1. Enable **net.ipv4.tcp_syncookies = 1** now and persistently (/etc/sysctl.d/).
+      2. Log the message `hardening applied` with tag **hardening** at priority **notice**.
+    setup: |
+      sysctl -qw net.ipv4.tcp_syncookies=0 2>/dev/null; grep -l tcp_syncookies /etc/sysctl.d/*.conf 2>/dev/null | xargs -r rm -f
+    reference: |
+      echo 'net.ipv4.tcp_syncookies = 1' | sudo tee /etc/sysctl.d/70-syncookies.conf && sudo sysctl --system >/dev/null
+      logger -t hardening -p user.notice "hardening applied"
+    checks:
+      - {type: command, run: "sysctl -n net.ipv4.tcp_syncookies", stdout_equals: "1"}
+      - {type: command, run: "grep -hE '^\\s*net\\.ipv4\\.tcp_syncookies\\s*=\\s*1' /etc/sysctl.d/*.conf | wc -l", stdout_regex: '^[1-9]'}
+      - {type: command, run: "journalctl -t hardening -p notice -o cat --no-pager", stdout_contains: hardening applied}
+    hints: [sysctl.d file + sysctl --system; logger with -t and -p., "logger -t hardening -p user.notice MESSAGE", "echo 'net.ipv4.tcp_syncookies = 1' | sudo tee /etc/sysctl.d/70-syncookies.conf", "sudo sysctl --system; then logger."]

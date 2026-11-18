@@ -1,0 +1,226 @@
+id: a01-advanced-bash
+level: advanced
+module: scripting
+title: Advanced Bash scripting
+duration: 45
+objectives:
+  - Write defensive scripts with strict mode, traps and clean-up
+  - Parse options with getopts
+  - Use arrays and associative arrays
+  - Produce useful diagnostics and exit codes
+
+sections:
+  - title: Strict mode and error handling
+    content: |
+      Production scripts should fail loudly and early:
+
+      ```bash
+      #!/usr/bin/env bash
+      set -Eeuo pipefail
+      trap 'echo "error on line $LINENO: $BASH_COMMAND" >&2' ERR
+      ```
+
+      * `-e` exit on any failing command (except in `if`, `while`, `&&`/`||` tests);
+      * `-u` unset variables are errors; use `${VAR:-default}` for optional ones;
+      * `-o pipefail` failures inside pipelines count;
+      * `-E` makes the ERR trap work inside functions.
+
+      Expected failures must be handled explicitly: `grep -q x f || true`,
+      `if ! cmd; then ...; fi`.
+  - title: traps and temporary files
+    content: |
+      `trap` runs code when the script exits or receives a signal - ideal for clean-up:
+
+      ```bash
+      tmp=$(mktemp -d)
+      trap 'rm -rf "$tmp"' EXIT          # runs on normal exit, error or Ctrl+C
+      trap 'echo interrupted >&2; exit 130' INT TERM
+      ```
+
+      Always create temporary files with **mktemp** - fixed names like /tmp/data.txt are a
+      security hole (another user can pre-create or symlink them).
+  - title: Option parsing with getopts
+    content: |
+      ```bash
+      usage() { echo "usage: $0 [-v] [-o OUTPUT] FILE..." >&2; exit 2; }
+      verbose=0; out=/dev/stdout
+      while getopts ":vo:h" opt; do
+          case $opt in
+              v) verbose=1 ;;
+              o) out=$OPTARG ;;
+              h) usage ;;
+              :) echo "-$OPTARG needs an argument" >&2; usage ;;
+              \?) echo "unknown option -$OPTARG" >&2; usage ;;
+          esac
+      done
+      shift $((OPTIND - 1))      # "$@" now holds only the remaining operands
+      (( $# > 0 )) || usage
+      ```
+
+      A colon after a letter (`o:`) means the option takes an argument.
+  - title: Arrays
+    content: |
+      ```bash
+      servers=(web1 web2 "db 1")            # indexed array
+      servers+=(cache1)
+      echo "${servers[0]} ${#servers[@]}"   # first element, number of elements
+      for s in "${servers[@]}"; do ping -c1 "$s"; done
+
+      declare -A port=([http]=80 [https]=443)   # associative array (bash 4+)
+      port[ssh]=22
+      for k in "${!port[@]}"; do echo "$k -> ${port[$k]}"; done
+      ```
+
+      `mapfile -t lines < file` reads a whole file into an array, one line per element.
+
+exercises:
+  - id: getopts
+    title: A script with options
+    instructions: |
+      Write an executable script **~/greet** that accepts:
+
+      * `-n NAME` - the name to greet (default `World`)
+      * `-u` - print the greeting in UPPER CASE
+
+      and prints `Hello, NAME!`.  Any unknown option must print a usage message to stderr
+      and exit with status **2**.
+
+          ./greet               -> Hello, World!
+          ./greet -n Ada        -> Hello, Ada!
+          ./greet -u -n Ada     -> HELLO, ADA!
+          ./greet -x            -> (usage on stderr, exit status 2)
+    setup: rm -f {home}/greet
+    reference: |
+      cat > ~/greet <<'EOF'
+      #!/bin/bash
+      name=World; upper=0
+      while getopts ":n:u" opt; do
+        case $opt in
+          n) name=$OPTARG ;;
+          u) upper=1 ;;
+          *) echo "usage: greet [-u] [-n NAME]" >&2; exit 2 ;;
+        esac
+      done
+      msg="Hello, $name!"
+      (( upper )) && msg=${msg^^}
+      echo "$msg"
+      EOF
+      chmod +x ~/greet
+    checks:
+      - {type: script, path: ~/greet, stdout_equals: "Hello, World!"}
+      - {type: script, path: ~/greet, args: [-n, Ada], stdout_equals: "Hello, Ada!"}
+      - {type: script, path: ~/greet, args: [-u, -n, Ada], stdout_equals: "HELLO, ADA!"}
+      - {type: script, path: ~/greet, args: [-n, Ada Lovelace], stdout_equals: "Hello, Ada Lovelace!"}
+      - {type: script, path: ~/greet, args: [-x], exit_code: 2, stdout_equals: ""}
+    hints:
+      - Loop over the options with getopts and a case statement.
+      - "getopts \":n:u\" - n takes an argument (OPTARG); anything else lands in the * branch."
+      - "while getopts \":n:u\" opt; do case $opt in n) name=$OPTARG;; u) upper=1;; *) echo usage >&2; exit 2;; esac; done"
+      - "${msg^^} converts a variable to upper case in bash 4+. Remember the default name=World before the loop."
+  - id: trap-cleanup
+    title: Clean up after yourself
+    instructions: |
+      Write an executable script **~/work.sh** that:
+
+      1. creates a temporary directory with **mktemp -d**;
+      2. prints its path on the first line of output;
+      3. writes a file into it and then **fails** with `exit 3`;
+      4. still **removes the temporary directory** on exit, thanks to a **trap**.
+
+      The tutor runs the script, reads the path it printed, and checks that the directory
+      is gone and the exit status was 3.
+    setup: rm -f {home}/work.sh
+    reference: |
+      cat > ~/work.sh <<'EOF'
+      #!/bin/bash
+      tmp=$(mktemp -d)
+      trap 'rm -rf "$tmp"' EXIT
+      echo "$tmp"
+      echo data > "$tmp/file"
+      exit 3
+      EOF
+      chmod +x ~/work.sh
+    checks:
+      - {type: script, path: ~/work.sh, exit_code: 3, stdout_regex: '^/tmp/tmp\.'}
+      - type: command
+        user: student
+        run: "d=$(/home/student/work.sh | head -1); [ -n \"$d\" ] && [ ! -e \"$d\" ]"
+        exit_code: 0
+        fail: "The temporary directory printed by the script still exists after it exits - add trap 'rm -rf \"$tmp\"' EXIT."
+    hints:
+      - The trap must be installed before the script fails.
+      - "trap 'COMMANDS' EXIT runs COMMANDS whenever the script ends, even after exit 3."
+      - "tmp=$(mktemp -d); trap 'rm -rf \"$tmp\"' EXIT"
+      - "Single quotes in the trap delay the expansion of $tmp until the trap runs."
+
+quiz:
+  questions:
+    - id: q-pipefail
+      type: interpret
+      topic: Strict mode and error handling
+      prompt: With `set -e` but WITHOUT pipefail, does this script stop at line 2?
+      output: |
+        set -e
+        grep missing /etc/hosts | sort
+        echo "still here"
+      options: [Yes, "No - the pipeline's status is sort's (0), so 'still here' is printed", It never starts, It loops]
+      answer: 1
+    - id: q-mktemp
+      type: mcq
+      topic: traps and temporary files
+      prompt: Why use mktemp instead of a fixed name like /tmp/myscript.tmp?
+      options: [It is faster, It creates a unique, unpredictable file safely - fixed names can be hijacked by other users, It deletes itself automatically, It compresses data]
+      answer: 1
+    - id: q-optarg
+      type: short
+      topic: Option parsing with getopts
+      prompt: In getopts, which variable holds the argument of an option such as -o FILE?
+      answer: [OPTARG, "$OPTARG"]
+    - id: q-arraylen
+      type: mcq
+      topic: Arrays
+      prompt: How do you get the number of elements in the array hosts?
+      options: ['${hosts}', '${#hosts[@]}', '$#hosts', '${hosts[#]}']
+      answer: 1
+    - id: q-trapexit
+      type: truefalse
+      topic: traps and temporary files
+      prompt: An EXIT trap also runs when the script is ended by `set -e` because a command failed.
+      answer: true
+    - id: q-assoc
+      type: mcq
+      topic: Arrays
+      prompt: Which declaration creates an associative array?
+      options: [declare -a m, declare -A m, local m=(), array m]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Count file types
+      topic: Arrays
+      prompt: |
+        Write an executable script **~/exts.sh** that takes a directory and prints, for each
+        file **extension** found directly in it, the extension and how many files have it,
+        as `EXT COUNT`, **sorted by extension**.  Use an associative array.
+
+            $ ./exts.sh ~/mixed
+            jpg 3
+            txt 2
+      setup: |
+        rm -rf {home}/mixed {home}/exts.sh; mkdir -p {home}/mixed
+        touch {home}/mixed/{a,b,c}.jpg {home}/mixed/{x,y}.txt {home}/mixed/report.pdf; chown -R student: {home}/mixed
+      reference: |
+        cat > ~/exts.sh <<'EOF'
+        #!/bin/bash
+        declare -A n
+        for f in "$1"/*.*; do ext=${f##*.}; (( n[$ext]++ )); done
+        for e in "${!n[@]}"; do echo "$e ${n[$e]}"; done | sort
+        EOF
+        chmod +x ~/exts.sh
+      checks:
+        - {type: script, path: ~/exts.sh, args: [/home/student/mixed], stdout_equals: "jpg 3\npdf 1\ntxt 2"}
+        - {type: file_contains, path: ~/exts.sh, regex: 'declare\s+-A', fail: "Use an associative array (declare -A)."}
+      hints:
+        - Count into an array indexed by extension, then print and sort.
+        - "${f##*.} gives the extension; (( n[$ext]++ )) counts; \"${!n[@]}\" lists the keys."
+        - "declare -A n; for f in \"$1\"/*.*; do ext=${f##*.}; (( n[$ext]++ )); done"
+        - "Then: for e in \"${!n[@]}\"; do echo \"$e ${n[$e]}\"; done | sort"

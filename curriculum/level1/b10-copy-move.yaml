@@ -1,0 +1,238 @@
+id: b10-copy-move
+level: beginner
+module: filesystem
+title: Copying, moving and renaming files
+duration: 25
+objectives:
+  - Copy files and directories with cp
+  - Move and rename with mv
+  - Delete files with rm, safely
+  - Use the -i, -r and -v options to work carefully
+
+sections:
+  - title: Copying with cp
+    content: |
+      `cp SOURCE DESTINATION` copies a file.
+
+      ```
+      cp notes.txt notes-backup.txt         # copy with a new name
+      cp notes.txt ~/archive/               # copy into a directory (keeps the name)
+      cp a.txt b.txt c.txt ~/archive/       # several files into a directory
+      ```
+
+      If the destination is an existing **directory**, the copy goes *inside* it.
+      Otherwise the destination is the new file's name.
+
+      To copy a directory and everything in it, add **-r** (recursive):
+
+      ```
+      cp -r ~/projects ~/projects-backup
+      ```
+
+      :::warning
+      If the destination file already exists, cp **overwrites it silently**.  Add
+      `-i` to be asked first, or `-n` to never overwrite.
+      :::
+    examples:
+      - command: cp /etc/hostname ~/hostname-copy
+        explanation: Copy a system file into your home under a new name.
+      - command: cp -v /etc/hosts /etc/hostname ~/
+        explanation: Copy two files into your home; -v reports each copy.
+  - title: Moving and renaming with mv
+    content: |
+      `mv` **moves** a file to another place.  Linux has no separate rename command:
+      renaming *is* moving to a new name in the same directory.
+
+      ```
+      mv draft.txt final.txt              # rename
+      mv final.txt ~/documents/           # move into a directory
+      mv ~/documents/final.txt ~/old.txt  # move and rename at once
+      mv photos/ ~/pictures/              # move a whole directory (no -r needed)
+      ```
+
+      Like cp, mv overwrites an existing destination without asking unless you use `-i`.
+    more: |
+      Inside one filesystem, mv does not copy any data - it only changes the
+      directory entry, so moving a 50 GB file is instant.  Across filesystems (for
+      example to a USB stick) mv has to copy the data and delete the original.
+  - title: Deleting with rm
+    content: |
+      `rm FILE` removes a file **permanently** - there is no recycle bin.
+
+      | Command | Effect |
+      |---|---|
+      | `rm file.txt` | delete one file |
+      | `rm -i *.log` | ask before deleting each file |
+      | `rm -r dir` | delete a directory and its contents |
+      | `rm -f file` | force: never ask, ignore missing files |
+
+      :::warning
+      `rm -rf` combined with a wrong path or a stray space is the classic
+      catastrophe: `rm -rf / home/old` (note the space!) would try to delete
+      everything.  Read destructive commands twice.  Use `ls` with the same path first
+      to see what would be affected.
+      :::
+  - title: Wildcards
+    content: |
+      The shell expands **wildcards** (globs) into matching file names before the
+      command runs:
+
+      | Pattern | Matches |
+      |---|---|
+      | `*` | any characters (including none) |
+      | `?` | exactly one character |
+      | `[abc]` | one of a, b or c |
+
+      ```
+      cp *.jpg ~/pictures/       # every .jpg in the current directory
+      rm report-202?.txt         # report-2020.txt ... report-2029.txt
+      ```
+
+      :::tip
+      Check what a wildcard matches before using it with rm: `ls *.tmp` first, then
+      `rm *.tmp`.  Or use `echo rm *.tmp` to see the expanded command.
+      :::
+
+exercises:
+  - id: backup
+    title: Back up a file
+    instructions: |
+      Make a copy of **~/report.txt** called **~/report.bak**.  The original must stay
+      where it is, unchanged.
+    setup: |
+      echo "Quarterly report: sales up 4%" > {home}/report.txt; rm -f {home}/report.bak
+      chown student: {home}/report.txt
+    reference: cp ~/report.txt ~/report.bak
+    alternatives: ['cat ~/report.txt > ~/report.bak', 'cd ~ && cp -v report.txt report.bak']
+    wrong:
+      - {run: mv ~/report.txt ~/report.bak, expect: partial}
+    checks:
+      - {type: file_contains, path: ~/report.bak, text: "sales up 4%"}
+      - {type: file_contains, path: ~/report.txt, text: "sales up 4%",
+         fail: "The original ~/report.txt is missing or changed - did you use mv instead of cp?"}
+    hints:
+      - You need two files with the same content afterwards.
+      - cp copies; mv would move (and the original would disappear).
+      - cp ~/report.txt ~/report.bak
+      - "cp ~/report.txt ~/report.bak creates a second, independent copy."
+  - id: organise
+    title: Organise a messy directory
+    instructions: |
+      The directory **~/inbox** contains photos (`.jpg`) and documents (`.txt`).
+
+      * Move every **.jpg** file into **~/inbox/photos**
+      * Move every **.txt** file into **~/inbox/docs**
+
+      Both directories already exist.  Do not delete anything.
+    setup: |
+      rm -rf {home}/inbox; mkdir -p {home}/inbox/photos {home}/inbox/docs
+      cd {home}/inbox && touch beach.jpg cat.jpg sunset.jpg letter.txt cv.txt minutes.txt
+      chown -R student: {home}/inbox
+    reference: cd ~/inbox && mv *.jpg photos/ && mv *.txt docs/
+    alternatives: ['mv ~/inbox/beach.jpg ~/inbox/cat.jpg ~/inbox/sunset.jpg ~/inbox/photos && mv ~/inbox/*.txt ~/inbox/docs']
+    checks:
+      - {type: command, run: "ls /home/student/inbox/photos | sort | tr '\\n' ' '", stdout_equals: "beach.jpg cat.jpg sunset.jpg",
+         fail: "~/inbox/photos should contain beach.jpg, cat.jpg and sunset.jpg."}
+      - {type: command, run: "ls /home/student/inbox/docs | sort | tr '\\n' ' '", stdout_equals: "cv.txt letter.txt minutes.txt",
+         fail: "~/inbox/docs should contain cv.txt, letter.txt and minutes.txt."}
+      - {type: command, run: "find /home/student/inbox -maxdepth 1 -type f | wc -l", stdout_equals: "0",
+         fail: Some files are still directly in ~/inbox.}
+    hints:
+      - A wildcard can select all files with the same extension.
+      - "*.jpg matches every name ending in .jpg; mv moves files into a directory."
+      - cd ~/inbox && mv *.jpg photos/
+      - "cd ~/inbox; mv *.jpg photos/; mv *.txt docs/ - the shell expands each wildcard into the list of matching files."
+  - id: cleanup-tmp
+    title: Delete only the temporary files
+    instructions: |
+      **~/work** contains your files plus some temporary files ending in **.tmp**.
+      Delete all the **.tmp** files and nothing else.
+    setup: |
+      rm -rf {home}/work; mkdir -p {home}/work; cd {home}/work
+      touch a.tmp b.tmp cache.tmp essay.doc budget.xls tmp-notes.txt
+      chown -R student: {home}/work
+    reference: rm ~/work/*.tmp
+    checks:
+      - {type: command, run: "ls /home/student/work/*.tmp 2>/dev/null | wc -l", stdout_equals: "0", fail: Some .tmp files remain.}
+    constraints:
+      - {type: file_exists, path: ~/work/essay.doc, fail: essay.doc was deleted!}
+      - {type: file_exists, path: ~/work/budget.xls, fail: budget.xls was deleted!}
+      - {type: file_exists, path: ~/work/tmp-notes.txt,
+         fail: "tmp-notes.txt was deleted - it starts with 'tmp' but does not end in .tmp. A pattern like *tmp* is too broad."}
+    wrong:
+      - {run: rm ~/work/*tmp*, expect: correct_side_effects}
+    hints:
+      - The files to delete all end the same way.
+      - A wildcard pattern *.tmp matches names ending in .tmp. Check it with ls first.
+      - "ls ~/work/*.tmp   then   rm ~/work/*.tmp"
+      - "rm ~/work/*.tmp deletes a.tmp, b.tmp and cache.tmp. A pattern like *tmp* would also match tmp-notes.txt."
+
+quiz:
+  questions:
+    - id: q-rename
+      type: mcq
+      topic: Moving and renaming with mv
+      prompt: How do you rename old.txt to new.txt?
+      options: [rename old.txt new.txt, cp old.txt new.txt, mv old.txt new.txt, rn old.txt new.txt]
+      answer: 2
+      explanation: cp would leave old.txt behind; mv renames.
+    - id: q-cp-r
+      type: mcq
+      topic: Copying with cp
+      prompt: Which option is required to copy a directory with everything inside it?
+      options: [-a or -r, -d, -f, -v]
+      answer: 0
+      explanation: -r copies recursively; -a (archive) also implies recursion and preserves attributes.
+    - id: q-overwrite
+      type: truefalse
+      topic: Copying with cp
+      prompt: By default cp asks for confirmation before overwriting an existing file.
+      answer: false
+    - id: q-glob
+      type: multi
+      topic: Wildcards
+      prompt: Which files does the pattern `file?.txt` match?
+      options: [file1.txt, file10.txt, fileA.txt, file.txt, files.txt]
+      answer: [0, 2, 4]
+    - id: q-rmrf
+      type: troubleshoot
+      topic: Deleting with rm
+      prompt: |
+        An administrator wants to remove /home/old and types `rm -rf / home/old`.  What is wrong?
+      options:
+        - Nothing - it removes /home/old
+        - The space after / makes rm try to delete the entire filesystem as well
+        - rm cannot delete directories
+        - -rf must come after the path
+      answer: 1
+    - id: q-mv-dir
+      type: interpret
+      topic: Moving and renaming with mv
+      prompt: The directory archive exists.  What does this command do?
+      output: "$ mv report.txt archive"
+      options:
+        - Renames report.txt to archive
+        - Moves report.txt into the archive directory
+        - Copies report.txt into archive
+        - Fails because archive exists
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Rename and archive
+      topic: Moving and renaming with mv
+      prompt: |
+        Rename **~/draft.txt** to **~/final.txt**, then copy **~/final.txt** into the
+        existing directory **~/archive** (so ~/archive/final.txt exists too).
+      setup: |
+        rm -rf {home}/archive {home}/final.txt; mkdir -p {home}/archive
+        echo "my essay" > {home}/draft.txt; chown -R student: {home}/archive {home}/draft.txt
+      reference: mv ~/draft.txt ~/final.txt && cp ~/final.txt ~/archive/
+      checks:
+        - {type: not_exists, path: ~/draft.txt, fail: ~/draft.txt still exists - renaming means moving.}
+        - {type: file_contains, path: ~/final.txt, text: my essay}
+        - {type: file_contains, path: ~/archive/final.txt, text: my essay}
+      hints:
+        - Two steps - rename, then copy.
+        - mv renames; cp copies into a directory.
+        - mv ~/draft.txt ~/final.txt; cp ~/final.txt ~/archive/
+        - "mv changes the name; cp then creates a second copy inside ~/archive."

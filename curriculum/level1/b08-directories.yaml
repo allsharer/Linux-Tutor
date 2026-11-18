@@ -1,0 +1,337 @@
+id: b08-directories
+level: beginner
+module: filesystem
+title: Creating and removing directories
+duration: 25
+objectives:
+  - Create directories with mkdir, including nested directories with -p
+  - Remove empty directories with rmdir
+  - Remove directories and their contents with rm -r, safely
+  - Understand why Linux asks you to be explicit before deleting
+
+sections:
+  - title: Why directories matter
+    content: |
+      A **directory** (what other systems call a *folder*) is a container for files
+      and other directories.  Organising your work into directories is the first
+      habit of every competent Linux user: projects, documents, scripts and
+      downloads each get their own place.
+
+      In the last lesson you learned to *move around* the filesystem with `cd`.
+      Now you will learn to *shape* it.
+
+      ```
+      /home/student
+      ├── projects
+      │   ├── website
+      │   └── scripts
+      └── notes
+      ```
+
+      :::note
+      Your home directory, `/home/student`, belongs to you.  You may create
+      anything you like inside it without special permission.  Elsewhere -
+      for example `/etc` - you usually need administrator rights.
+      :::
+  - title: Creating a directory with mkdir
+    content: |
+      `mkdir` means **m**a**k**e **dir**ectory.  Give it the name of the
+      directory you want:
+
+      ```
+      $ mkdir notes
+      $ ls
+      notes
+      ```
+
+      Like most Linux commands, `mkdir` says nothing when it succeeds.
+      *Silence means success.*  If something goes wrong it prints an error:
+
+      ```
+      $ mkdir notes
+      mkdir: cannot create directory 'notes': File exists
+      ```
+
+      The name you give is a **path**, so everything from the lesson on paths
+      applies.  These all create the same directory, wherever you are:
+
+      ```
+      mkdir ~/notes
+      mkdir /home/student/notes
+      mkdir "$HOME/notes"
+      ```
+
+      A relative name such as `notes` is created inside your *current*
+      directory - so always know where you are (`pwd`) before you create things.
+    more: |
+      You can create several directories at once: `mkdir music photos videos`
+      creates three directories side by side.  If one of the names already exists,
+      mkdir reports an error for that name but still creates the others.
+    examples:
+      - command: mkdir ~/notes
+        explanation: Creates notes inside your home directory, no matter where you are.
+      - command: mkdir music photos videos
+        explanation: Creates three directories in the current directory.
+  - title: Creating nested directories with -p
+    content: |
+      Suppose you want `projects/website/images`, but `projects` does not exist yet:
+
+      ```
+      $ mkdir projects/website/images
+      mkdir: cannot create directory 'projects/website/images': No such file or directory
+      ```
+
+      mkdir refuses because the *parent* directories are missing.  The `-p`
+      option ("parents") creates every missing directory along the path, and it
+      does not complain if the directory already exists:
+
+      ```
+      $ mkdir -p projects/website/images
+      $ ls -R projects
+      projects:
+      website
+
+      projects/website:
+      images
+      ```
+
+      :::tip
+      Because `mkdir -p` never fails for an existing directory, it is the usual
+      choice in scripts: running the script twice is harmless.
+      :::
+  - title: Removing directories
+    content: |
+      There are two tools, and the difference is important.
+
+      **rmdir** removes a directory *only if it is empty*.  It is safe: it can
+      never destroy files.
+
+      ```
+      $ rmdir videos
+      $ rmdir projects
+      rmdir: failed to remove 'projects': Directory not empty
+      ```
+
+      **rm -r** ("remove recursively") removes a directory *and everything in it*:
+
+      ```
+      $ rm -r projects
+      ```
+
+      :::warning
+      There is no recycle bin on the command line.  `rm -r` deletes immediately
+      and permanently.  Check the path twice before pressing Enter, and use
+      `rm -ri` (interactive) when you want to be asked about every file.
+      Never run `rm -rf` on a path you have not double-checked.
+      :::
+
+      In this laboratory a mistake costs nothing - you can reset the lab.  On a
+      real server, the habit of reading a destructive command before running it
+      is one of the most valuable you can develop.
+    more: |
+      Why is Linux so unforgiving?  Unix was designed for experts who preferred tools
+      that do exactly what they are told, quickly, without confirmation dialogs.  The
+      safety net is *you* - and good habits: use rmdir when you expect a directory to be
+      empty, use `ls` on the path first, and use -i when unsure.
+
+exercises:
+  - id: make-projects
+    title: Create a projects directory
+    instructions: |
+      Create a directory called **projects** inside your home directory.
+
+      You may be anywhere in the filesystem when you do this.
+    setup: |
+      rm -rf {home}/projects /tmp/projects
+      mkdir -p {home}/elsewhere && chown student: {home}/elsewhere
+    reference: mkdir ~/projects
+    alternatives: ['cd ~ && mkdir projects', 'mkdir "$HOME/projects"', 'cd /tmp && mkdir ../home/student/projects']
+    wrong:
+      - {run: cd /tmp && mkdir projects, expect: incorrect, feedback: not in your home directory}
+      - {run: touch ~/projects, expect: incorrect, feedback: regular *file*}
+      - {run: mkdir ~/Projects, expect: incorrect, feedback: case-sensitive}
+    checks:
+      - type: dir_exists
+        path: ~/projects
+        fail: There is no directory called projects in your home directory (/home/student/projects).
+    diagnostics:
+      - when: {type: file_exists, path: ~/projects}
+        message: >
+          ~/projects exists, but it is a regular *file*, not a directory - perhaps it was
+          created with touch or a redirection.  Remove it with rm and use mkdir instead.
+      - when: {type: find, name: projects, kind: d, exclude: [~/projects]}
+        message: >
+          A directory called projects was created at {found}, not in your home directory.
+          A relative name is created inside your *current* directory.  Use an absolute path
+          such as ~/projects, or cd to your home directory first.  Review the lesson on
+          absolute and relative paths.
+        review: b06-paths
+      - when: {type: find, name: "[Pp]roject*", kind: d, exclude: [~/projects]}
+        message: >
+          Found a directory called {found}.  Linux filenames are case-sensitive and must be
+          spelled exactly: the name must be projects (all lower case).
+    hints:
+      - Directories are created with a command whose name is short for "make directory".
+      - The command is mkdir. It takes the path of the directory to create.
+      - "For example: mkdir ~/projects   (the ~ means your home directory)"
+      - "mkdir ~/projects creates /home/student/projects regardless of your current directory, because ~ expands to your home directory. Alternatively: cd ~ and then mkdir projects."
+    explanation: |
+      `mkdir ~/projects` works from anywhere because `~` expands to `/home/student`.
+      `cd ~ && mkdir projects` and `mkdir "$HOME/projects"` are equally correct.
+
+  - id: nested
+    title: Create a nested directory tree
+    instructions: |
+      Create the directory **~/projects/website/images** in a single step - including any
+      parent directories that do not exist yet.
+
+      Then create **~/projects/website/css** as well.
+    setup: |
+      rm -rf {home}/projects/website
+      mkdir -p {home}/projects && chown student: {home}/projects
+    reference: mkdir -p ~/projects/website/images ~/projects/website/css
+    method_patterns: ['mkdir']
+    alternatives:
+      - cd ~/projects && mkdir website && mkdir website/images website/css
+      - mkdir -p "$HOME/projects/website/"{images,css}
+    wrong:
+      - run: mkdir -p ~/projects/website/images
+        expect: partial
+    checks:
+      - type: dir_exists
+        path: ~/projects/website/images
+      - type: dir_exists
+        path: ~/projects/website/css
+    hints:
+      - When a parent directory is missing, mkdir needs to be told it may create parents too.
+      - The mkdir option for "parents" is -p.
+      - "mkdir -p ~/projects/website/images"
+      - "mkdir -p ~/projects/website/images creates website and images in one go. Then mkdir ~/projects/website/css (website now exists, so -p is optional)."
+    explanation: |
+      `mkdir -p` creates every missing directory in the path and does not complain
+      about directories that already exist.
+
+  - id: tidy-up
+    title: Remove directories safely
+    instructions: |
+      Your home directory contains two directories left over from an old project:
+
+      * **~/old-empty** is empty - remove it.
+      * **~/old-project** contains files - remove it *and its contents*.
+
+      Do **not** touch **~/keep-me**.
+    setup: |
+      rm -rf {home}/old-empty {home}/old-project {home}/keep-me
+      mkdir -p {home}/old-empty {home}/old-project/src {home}/keep-me
+      echo draft > {home}/old-project/README
+      echo 'print("hi")' > {home}/old-project/src/main.py
+      echo important > {home}/keep-me/data.txt
+      chown -R student: {home}/old-empty {home}/old-project {home}/keep-me
+    reference: rmdir ~/old-empty && rm -r ~/old-project
+    alternatives: ['rm -rf ~/old-empty ~/old-project', 'cd ~ && rm -r old-*']
+    wrong:
+      - {run: rm -rf ~/old-* ~/keep-me, expect: correct_side_effects}
+      - {run: rmdir ~/old-empty, expect: partial}
+    method_patterns: ['\brm(dir)?\b']
+    checks:
+      - type: not_exists
+        path: ~/old-empty
+        fail: ~/old-empty still exists. An empty directory can be removed with rmdir.
+      - type: not_exists
+        path: ~/old-project
+        fail: ~/old-project still exists. rmdir refuses to remove a directory that is not empty - you need rm -r.
+    constraints:
+      - type: file_contains
+        path: ~/keep-me/data.txt
+        text: important
+        fail: ~/keep-me/data.txt was removed or changed - you deleted more than you were asked to.
+    hints:
+      - Two different commands remove directories - one only works on empty directories.
+      - rmdir removes empty directories; rm with the -r option removes a directory and its contents.
+      - "rmdir ~/old-empty   then   rm -r ~/old-project"
+      - "rmdir ~/old-empty removes the empty directory. rm -r ~/old-project recursively deletes the directory, its files and sub-directories. Always check the path before using rm -r."
+    explanation: |
+      `rmdir` is the safe choice for empty directories; `rm -r` is needed when a
+      directory has content.  Leaving ~/keep-me untouched shows careful work.
+
+quiz:
+  questions:
+    - id: q-mkdir-relative
+      type: mcq
+      topic: Creating a directory with mkdir
+      prompt: |
+        Your current directory is /tmp.  You type `mkdir reports`.  Where is the
+        new directory created?
+      options:
+        - /home/student/reports
+        - /tmp/reports
+        - /reports
+        - Nowhere - mkdir needs an absolute path
+      answer: 1
+      explanation: A relative path is interpreted from the current directory, which is /tmp.
+    - id: q-p-option
+      type: mcq
+      topic: Creating nested directories with -p
+      prompt: What does the -p option of mkdir do?
+      options:
+        - Prompts before creating each directory
+        - Creates missing parent directories and does not complain if the directory exists
+        - Makes the directory private
+        - Prints the name of each directory created
+      answer: 1
+      explanation: -p stands for "parents".
+    - id: q-rmdir-nonempty
+      type: truefalse
+      topic: Removing directories
+      prompt: "`rmdir photos` will delete the photos directory even if it contains files."
+      answer: false
+      explanation: rmdir only removes empty directories. That is what makes it safe.
+    - id: q-interpret
+      type: interpret
+      topic: Creating nested directories with -p
+      prompt: What is the most likely cause of this error?
+      output: |
+        $ mkdir work/2024/reports
+        mkdir: cannot create directory 'work/2024/reports': No such file or directory
+      options:
+        - The directory work/2024/reports already exists
+        - You do not have permission to create directories
+        - The parent directory work/2024 does not exist
+        - Directory names cannot contain numbers
+      answer: 2
+      explanation: mkdir cannot create a directory whose parent is missing unless you use -p.
+    - id: q-short-rm
+      type: short
+      topic: Removing directories
+      prompt: Which option makes rm ask for confirmation before removing each file? (type just the option)
+      answer: ["-i", "--interactive", "re:-i|--interactive(=always)?"]
+      explanation: rm -i (interactive) asks before each removal.
+    - id: q-practical
+      type: practical
+      title: Build a folder structure
+      topic: Creating nested directories with -p
+      prompt: |
+        Create this structure inside your home directory:
+
+            ~/backup/daily
+            ~/backup/weekly
+
+        and remove the empty directory **~/scratch** which already exists.
+      setup: |
+        rm -rf {home}/backup; mkdir -p {home}/scratch; chown student: {home}/scratch
+      reference: mkdir -p ~/backup/daily ~/backup/weekly && rmdir ~/scratch
+      checks:
+        - {type: dir_exists, path: ~/backup/daily}
+        - {type: dir_exists, path: ~/backup/weekly}
+        - {type: not_exists, path: ~/scratch}
+      hints:
+        - You need to create two nested directories and remove one empty one.
+        - mkdir -p creates parents; rmdir removes an empty directory.
+        - mkdir -p ~/backup/daily ~/backup/weekly
+        - "mkdir -p ~/backup/daily ~/backup/weekly creates both (and backup itself); rmdir ~/scratch removes the empty directory."
+
+references:
+  - title: mkdir(1) manual page
+    url: https://man7.org/linux/man-pages/man1/mkdir.1.html
+  - title: rmdir(1) manual page
+    url: https://man7.org/linux/man-pages/man1/rmdir.1.html

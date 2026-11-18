@@ -1,0 +1,15 @@
+#!/bin/bash
+# Show information about the Linux Tutor laboratory.
+echo "Linux Tutor laboratory"
+echo "  Hostname      : $(hostname)"
+echo "  Distribution  : $(. /etc/os-release; echo "$PRETTY_NAME")"
+echo "  Kernel        : $(uname -r) (shared with the host computer)"
+echo "  Your user     : $(id -un) (uid $(id -u))"
+echo "  Network mode  : $(cat /etc/lab-netmode 2>/dev/null || echo unknown)"
+echo "  Init system   : $(ps -p 1 -o comm=)"
+echo
+echo "Notes:"
+echo "  * The kernel belongs to the host, so kernel modules cannot be loaded here."
+echo "  * Block devices are not available; use disk *image files* for disk exercises."
+echo "  * 'apt install' works offline for packages in the lab repository:"
+echo "      $(ls /opt/lab-repo/*.deb 2>/dev/null | xargs -n1 basename 2>/dev/null | cut -d_ -f1 | sort -u | tr '\n' ' ')"

@@ -1,0 +1,5 @@
+#!/bin/sh
+# Linux Tutor launcher (installed as /usr/bin/linux-tutor).
+LINUX_TUTOR_HOME="${LINUX_TUTOR_HOME:-/usr/share/linux-tutor}"
+export PYTHONPATH="$LINUX_TUTOR_HOME${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m linux_tutor "$@"

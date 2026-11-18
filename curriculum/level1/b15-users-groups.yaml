@@ -1,0 +1,216 @@
+id: b15-users-groups
+level: beginner
+module: users-security
+title: Understanding users and groups
+duration: 25
+objectives:
+  - Explain why Linux is a multi-user system
+  - Identify users and groups with id, whoami and groups
+  - Read /etc/passwd and /etc/group
+  - Understand root and use sudo responsibly
+
+sections:
+  - title: A multi-user system
+    content: |
+      Linux was designed from the start for many people sharing one computer.  Every
+      process runs **as some user**, and every file **belongs to some user**.  This is
+      the foundation of Linux security: users cannot read each other's private files
+      or interfere with each other's programs.
+
+      Not all users are people.  Services run under their own **system accounts**
+      (`www-data` for the web server, `syslog`, `nobody`) so that a compromised
+      service can only damage what that account owns.
+  - title: Users and groups
+    content: |
+      Each user has:
+
+      * a **user name** (`student`) and a number, the **UID** (`1000`);
+      * a **primary group** and possibly several **supplementary groups**;
+      * a home directory and a login shell.
+
+      A **group** is a named set of users, with a number called the **GID**.  Groups
+      make it easy to share access: put everyone in the `developers` group and give
+      that group access to the project files.
+
+      ```
+      $ id
+      uid=1000(student) gid=1000(student) groups=1000(student),4(adm),27(sudo),...
+      $ groups
+      student adm sudo systemd-journal
+      ```
+    examples:
+      - command: id
+        explanation: Your UID, primary GID and all groups.
+      - command: id root
+        explanation: Information about another user.
+      - command: who
+        explanation: Who is logged in (may be empty in a container).
+  - title: The account databases
+    content: |
+      Accounts are stored in plain text files:
+
+      **/etc/passwd** - one line per user, seven fields separated by colons:
+
+      ```
+      student:x:1000:1000:Linux Tutor Student:/home/student:/bin/bash
+       name  pw uid  gid      comment          home         shell
+      ```
+
+      The `x` means the password hash is kept in **/etc/shadow**, which only root can read.
+
+      **/etc/group** - one line per group: `sudo:x:27:student` (name, password,
+      GID, members).
+
+      `getent passwd student` looks a user up through the system's name services (it
+      also works when accounts come from a network directory).
+  - title: root and sudo
+    content: |
+      **root** (UID 0) is the superuser.  Permission checks do not apply to root:
+      it can read any file, kill any process, and delete the whole system.
+
+      For that reason you normally work as an ordinary user and use **sudo** for the
+      individual commands that need root:
+
+      ```
+      $ cat /etc/shadow
+      cat: /etc/shadow: Permission denied
+      $ sudo cat /etc/shadow
+      [sudo] password for student:
+      ```
+
+      sudo asks for *your* password (in this lab: `student`), checks that you are
+      allowed (members of the `sudo` group are), logs the command, and runs it as root.
+
+      :::warning
+      Treat every sudo command as dangerous.  Read it twice.  Never run a sudo command
+      copied from the Internet that you do not understand.
+      :::
+    more: |
+      `sudo -i` opens a root shell and `su -` switches to root using root's password.
+      Both are convenient but risky: everything you type afterwards runs as root.
+      Ubuntu deliberately locks the root password so that administrators use sudo.
+
+exercises:
+  - id: my-groups
+    title: Which groups am I in?
+    instructions: |
+      How many groups (primary and supplementary) is the user **student** a member of?
+      Type the number.
+    answer_prompt: "Number of groups:"
+    reference: id student
+    checks:
+      - {type: answer, command: "id -G student | wc -w"}
+    hints:
+      - A command prints all your groups.
+      - id or groups lists them; count them.
+      - groups
+      - "groups prints the group names on one line; count the words (groups | wc -w)."
+  - id: user-shell
+    title: Read the user database
+    instructions: |
+      A user account called **dbadmin** exists in the lab.  Find its **home directory**
+      in the user database and type it into the answer box.
+    answer_prompt: "Home directory:"
+    setup: |
+      id dbadmin >/dev/null 2>&1 || useradd -m -d /srv/database -s /bin/bash -c "Database admin" dbadmin
+    reference: grep dbadmin /etc/passwd
+    test_answer: /srv/database
+    checks:
+      - {type: answer, regex: '/srv/database/?'}
+    hints:
+      - User accounts are listed in a text file in /etc.
+      - The file is /etc/passwd; the sixth colon-separated field is the home directory.
+      - grep dbadmin /etc/passwd
+      - "grep dbadmin /etc/passwd shows dbadmin:x:...:Database admin:/srv/database:/bin/bash - the home is /srv/database. getent passwd dbadmin works too."
+  - id: use-sudo
+    title: Use sudo
+    instructions: |
+      The file **/root/welcome.txt** can only be read by root.  Use **sudo** to copy it
+      to **~/welcome.txt**, and make sure the copy belongs to **you** (student) so you can
+      edit it.  (Your sudo password is `student`.)
+    setup: |
+      echo "Welcome to the administrators club" > /root/welcome.txt; chmod 600 /root/welcome.txt
+      rm -f {home}/welcome.txt
+    reference: sudo cat /root/welcome.txt > ~/welcome.txt
+    alternatives: ['sudo cp /root/welcome.txt ~/ && sudo chown student:student ~/welcome.txt']
+    wrong:
+      - {run: sudo cp /root/welcome.txt ~/, expect: partial}
+    checks:
+      - {type: file_contains, path: ~/welcome.txt, text: administrators club}
+      - type: owner
+        path: ~/welcome.txt
+        user: student
+        fail: >
+          ~/welcome.txt belongs to root, because sudo cp created it as root.  Either change
+          the owner (sudo chown student: ~/welcome.txt) or let your own shell create the file:
+          sudo cat /root/welcome.txt > ~/welcome.txt
+    hints:
+      - Reading the file needs root, but the new file should be created by you.
+      - With sudo cat ... > file, the redirection is done by your own shell, so you own the result.
+      - sudo cat /root/welcome.txt > ~/welcome.txt
+      - "sudo cat runs as root and can read the file; your shell (running as student) performs the > redirection and creates ~/welcome.txt owned by student. sudo cp would create a root-owned copy that needs sudo chown."
+
+quiz:
+  questions:
+    - id: q-uid0
+      type: mcq
+      topic: root and sudo
+      prompt: What is the UID of the root user?
+      options: ["0", "1", "1000", "65534"]
+      answer: 0
+    - id: q-shadow
+      type: mcq
+      topic: The account databases
+      prompt: Where are password hashes stored on a modern Linux system?
+      options: [/etc/passwd, /etc/shadow, /etc/group, /home/USER/.password]
+      answer: 1
+    - id: q-system
+      type: truefalse
+      topic: A multi-user system
+      prompt: Services such as web servers often run as their own unprivileged user accounts to limit damage if they are compromised.
+      answer: true
+    - id: q-passwd-line
+      type: interpret
+      topic: The account databases
+      prompt: "What is the login shell of this user?"
+      output: "backup:x:34:34:backup:/var/backups:/usr/sbin/nologin"
+      options: [/var/backups, backup, /usr/sbin/nologin - the account cannot log in interactively, "34"]
+      answer: 2
+    - id: q-sudo-pw
+      type: mcq
+      topic: root and sudo
+      prompt: Whose password does sudo ask for by default?
+      options: [root's, Your own, The system administrator's, No password is needed]
+      answer: 1
+    - id: q-groups
+      type: multi
+      topic: Users and groups
+      prompt: Which statements about groups are true?
+      options:
+        - A user has exactly one primary group
+        - A user can belong to several supplementary groups
+        - Groups are identified by a GID number
+        - Only root can be a member of a group
+      answer: [0, 1, 2]
+    - id: q-practical
+      type: practical
+      title: Who owns this account?
+      topic: The account databases
+      prompt: |
+        Create **~/users.txt** listing the **user names only** (first field) of all
+        accounts in /etc/passwd whose login shell is **/bin/bash**, one per line.
+      setup: |
+        id dbadmin >/dev/null 2>&1 || useradd -m -d /srv/database -s /bin/bash -c "Database admin" dbadmin
+        rm -f {home}/users.txt
+      reference: "grep '/bin/bash$' /etc/passwd | cut -d: -f1 > ~/users.txt"
+      alternatives: ["awk -F: '$7 == \"/bin/bash\" {print $1}' /etc/passwd > ~/users.txt"]
+      checks:
+        - type: file_matches_command
+          path: ~/users.txt
+          command: "awk -F: '$7==\"/bin/bash\"{print $1}' /etc/passwd"
+          fail: ~/users.txt should list exactly the user names whose shell is /bin/bash (root, student, dbadmin ...), one per line.
+      hints:
+        - Select the right lines, then keep only the first field.
+        - grep finds lines ending in /bin/bash; cut -d: -f1 keeps the first colon-separated field.
+        - grep '/bin/bash$' /etc/passwd | cut -d: -f1 > ~/users.txt
+        - "grep selects bash users ($ anchors the match at the end of the line); cut extracts the user name; > saves the list."

@@ -1,0 +1,199 @@
+id: i16-software-install
+level: intermediate
+module: software
+title: Software installation and removal
+duration: 30
+objectives:
+  - Install software from .deb files, tarballs and source code
+  - Know where locally installed software belongs (/usr/local, /opt)
+  - Remove software cleanly, whatever way it was installed
+  - Hold packages and understand the risks of third-party sources
+
+sections:
+  - title: Ways to get software
+    content: |
+      In order of preference on Ubuntu:
+
+      1. **The distribution's repositories** (`apt install`) - tested, signed, security updates.
+      2. **A vendor's apt repository** (e.g. Docker, PostgreSQL) - add its key and source
+         file; you then get updates through apt.
+      3. **Snap / Flatpak** - self-contained bundles.
+      4. **A downloaded .deb** - `sudo apt install ./package.deb` (resolves dependencies).
+      5. **A binary tarball** - unpack into `/opt/NAME`, link the program into
+         `/usr/local/bin`.
+      6. **Building from source** - `./configure && make && sudo make install`, which by
+         convention installs into `/usr/local`.
+
+      :::warning
+      Options 4-6 bypass the package manager: no automatic security updates, and
+      removal is your job.  Only install software from sources you trust - an installer
+      run with sudo can do *anything* to the system.
+      :::
+  - title: /usr/local and /opt
+    content: |
+      The package manager owns `/usr` (except `/usr/local`).  Never put files there by
+      hand - a package update may overwrite or delete them.
+
+      * `/usr/local/bin`, `/usr/local/lib`, ... - software you build or install
+        yourself, laid out like /usr.  /usr/local/bin is already in PATH.
+      * `/opt/NAME` - self-contained third-party applications in their own directory.
+
+      ```
+      sudo tar xzf tool-2.1.tar.gz -C /opt
+      sudo ln -s /opt/tool-2.1/bin/tool /usr/local/bin/tool
+      ```
+  - title: Building from source, briefly
+    content: |
+      Classic open-source projects use:
+
+      ```
+      tar xzf project-1.0.tar.gz && cd project-1.0
+      ./configure --prefix=/usr/local     # check dependencies, generate Makefiles
+      make                                 # compile
+      sudo make install                    # copy files into the prefix
+      ```
+
+      `make uninstall` (if the project supports it) removes the files again.  Tools like
+      `checkinstall` can wrap a source install into a .deb so dpkg can track it.
+  - title: Holding and pinning
+    content: |
+      Sometimes you must keep a package at its current version:
+
+      ```
+      sudo apt-mark hold nginx       # apt upgrade will not touch it
+      apt-mark showhold
+      sudo apt-mark unhold nginx
+      ```
+
+exercises:
+  - id: install-deb
+    title: Install a downloaded .deb
+    instructions: |
+      A package file has been downloaded to **~/Downloads/hello.deb**.  Install it, then
+      run `hello`.
+    setup: |
+      apt-get purge -y -q hello >/dev/null 2>&1 || true
+      mkdir -p {home}/Downloads && cp /opt/lab-repo/hello_*.deb {home}/Downloads/hello.deb && chown -R student: {home}/Downloads
+    reference: sudo apt install -y ~/Downloads/hello.deb
+    alternatives: ['sudo dpkg -i ~/Downloads/hello.deb']
+    checks:
+      - {type: package_installed, name: hello}
+      - {type: command, run: hello, user: student, stdout_contains: "Hello, world!"}
+    hints:
+      - A local .deb can be installed with dpkg or with apt (give apt a path, not a name).
+      - "sudo dpkg -i FILE, or sudo apt install ./FILE"
+      - sudo apt install ~/Downloads/hello.deb
+      - "apt install with a path (containing a /) installs that file and fetches dependencies; dpkg -i installs it without dependency resolution."
+  - id: tarball
+    title: Install from a tarball
+    instructions: |
+      **~/Downloads/weather-1.2.tar.gz** contains a self-contained tool.  Install it the
+      clean way:
+
+      * unpack it into **/opt** (so that **/opt/weather-1.2/bin/weather** exists);
+      * create a symbolic link **/usr/local/bin/weather** pointing to that program.
+
+      Then running `weather` from any directory must work.
+    setup: |
+      rm -rf /opt/weather-1.2 /usr/local/bin/weather /tmp/wbuild; mkdir -p /tmp/wbuild/weather-1.2/bin /tmp/wbuild/weather-1.2/share
+      printf '#!/bin/bash\necho "Sunny, 23 degrees"\n' > /tmp/wbuild/weather-1.2/bin/weather; chmod 755 /tmp/wbuild/weather-1.2/bin/weather
+      echo "Weather 1.2 - demo tool" > /tmp/wbuild/weather-1.2/share/README
+      mkdir -p {home}/Downloads; tar czf {home}/Downloads/weather-1.2.tar.gz -C /tmp/wbuild weather-1.2; chown -R student: {home}/Downloads
+    reference: |
+      sudo tar xzf ~/Downloads/weather-1.2.tar.gz -C /opt
+      sudo ln -s /opt/weather-1.2/bin/weather /usr/local/bin/weather
+    checks:
+      - {type: file_exists, path: /opt/weather-1.2/bin/weather}
+      - {type: symlink, path: /usr/local/bin/weather, resolves_to: /opt/weather-1.2/bin/weather, valid: true}
+      - {type: command, run: "cd /tmp && weather", user: student, stdout_contains: Sunny}
+    constraints:
+      - {type: not_exists, path: /usr/bin/weather, fail: "A file was placed in /usr/bin, which belongs to the package manager. Use /usr/local/bin."}
+    hints:
+      - Two steps - extract into /opt, then link into a directory that is in PATH.
+      - "tar xzf FILE -C /opt extracts into /opt; ln -s creates the link (both need sudo)."
+      - sudo tar xzf ~/Downloads/weather-1.2.tar.gz -C /opt && sudo ln -s /opt/weather-1.2/bin/weather /usr/local/bin/weather
+      - "/opt keeps the application self-contained; /usr/local/bin is in everyone's PATH and is not managed by apt."
+  - id: hold
+    title: Freeze a version
+    instructions: |
+      Prevent the package **sl** from being upgraded by apt (put it on **hold**).
+    setup: |
+      apt-get install -y -q sl >/dev/null 2>&1; apt-mark unhold sl >/dev/null 2>&1
+    reference: sudo apt-mark hold sl
+    alternatives: ['echo "sl hold" | sudo dpkg --set-selections']
+    checks:
+      - {type: command, run: apt-mark showhold, stdout_contains: sl}
+    hints:
+      - apt has a tool for marking packages.
+      - apt-mark hold PACKAGE
+      - sudo apt-mark hold sl
+      - "apt-mark showhold lists held packages; apt-mark unhold releases them."
+
+quiz:
+  questions:
+    - id: q-usrlocal
+      type: mcq
+      topic: /usr/local and /opt
+      prompt: Where should you install a program you compiled yourself?
+      options: [/usr/bin, /usr/local/bin, /bin, /etc]
+      answer: 1
+    - id: q-updates
+      type: truefalse
+      topic: Ways to get software
+      prompt: Software installed from a tarball receives security updates automatically through apt.
+      answer: false
+    - id: q-steps
+      type: mcq
+      topic: Building from source, briefly
+      prompt: What is the usual sequence to build and install from source?
+      options: ["make; ./configure; install", "./configure; make; sudo make install", "sudo make; configure", "apt build"]
+      answer: 1
+    - id: q-hold
+      type: short
+      topic: Holding and pinning
+      prompt: Which command lists packages on hold?
+      answer: ["apt-mark showhold"]
+    - id: q-local-deb
+      type: interpret
+      topic: Ways to get software
+      prompt: Why does this fail?
+      output: |
+        $ sudo apt install package.deb
+        E: Unable to locate package package.deb
+      options:
+        - apt cannot install .deb files
+        - Without a / apt treats the argument as a package name - use ./package.deb
+        - The file is corrupt
+        - You must run apt update first
+      answer: 1
+    - id: q-trust
+      type: troubleshoot
+      topic: Ways to get software
+      prompt: A website tells you to run `curl https://example.com/install.sh | sudo bash`.  What is the main risk?
+      options:
+        - None, it is the standard way
+        - You run unknown code as root without reading it first
+        - curl is slow
+        - It only works on Fedora
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Uninstall cleanly
+      topic: /usr/local and /opt
+      prompt: |
+        A tool **mytool** was installed by hand: **/opt/mytool/** and a link
+        **/usr/local/bin/mytool**.  Remove **both** completely.
+      setup: |
+        mkdir -p /opt/mytool/bin && printf '#!/bin/sh\necho mytool\n' > /opt/mytool/bin/mytool && chmod 755 /opt/mytool/bin/mytool
+        ln -sf /opt/mytool/bin/mytool /usr/local/bin/mytool
+      reference: sudo rm -r /opt/mytool /usr/local/bin/mytool
+      checks:
+        - {type: not_exists, path: /opt/mytool}
+        - {type: not_exists, path: /usr/local/bin/mytool}
+      constraints:
+        - {type: dir_exists, path: /usr/local/bin, fail: /usr/local/bin itself was removed!}
+      hints:
+        - Remove the application directory and the link.
+        - rm -r for the directory, rm for the link (both with sudo).
+        - sudo rm -r /opt/mytool /usr/local/bin/mytool
+        - "Manual installs need manual removal - one reason to prefer packages."

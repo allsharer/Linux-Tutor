@@ -1,0 +1,232 @@
+id: i12-loops-functions
+level: intermediate
+module: shell
+title: Loops and functions
+duration: 40
+objectives:
+  - Repeat work with for, while and until loops
+  - Read files line by line safely
+  - Control loops with break and continue
+  - Organise scripts into functions with arguments and return values
+
+sections:
+  - title: for loops
+    content: |
+      ```bash
+      for f in *.jpg; do
+          echo "Processing $f"
+          convert "$f" -resize 50% "small-$f"
+      done
+
+      for user in alice bob carol; do sudo useradd -m "$user"; done
+      for i in {1..5}; do echo "attempt $i"; done
+      for (( i = 0; i < 10; i += 2 )); do echo "$i"; done
+      ```
+
+      The list after `in` can be words, a glob, a brace expansion or `$(command)` output.
+  - title: while and until
+    content: |
+      `while` repeats as long as a command succeeds; `until` as long as it fails:
+
+      ```bash
+      count=0
+      while (( count < 3 )); do
+          echo "count=$count"; (( count++ ))
+      done
+
+      until ping -c1 -W1 db.internal >/dev/null; do
+          echo "waiting for the database..."; sleep 5
+      done
+      ```
+
+      **Reading a file line by line** - the correct idiom:
+
+      ```bash
+      while IFS= read -r line; do
+          echo "line: $line"
+      done < input.txt
+      ```
+
+      `IFS=` keeps leading spaces, `-r` keeps backslashes.  Avoid `for line in $(cat file)` -
+      it splits on every space, not on lines.
+  - title: break and continue
+    content: |
+      * `continue` skips to the next iteration;
+      * `break` leaves the loop.
+
+      ```bash
+      for f in /var/log/*.log; do
+          [[ -s "$f" ]] || continue          # skip empty files
+          if grep -q PANIC "$f"; then echo "found in $f"; break; fi
+      done
+      ```
+  - title: Functions
+    content: |
+      A function groups commands under a name.  It takes arguments like a script
+      (`$1`, `$#`, `"$@"`) and returns a status with `return`:
+
+      ```bash
+      log() {
+          echo "$(date +%T) [$1] ${*:2}" >&2
+      }
+
+      is_number() {
+          [[ $1 =~ ^[0-9]+$ ]]          # status of the test is the return value
+      }
+
+      if is_number "$port"; then log INFO "port $port"; else log ERROR "bad port"; exit 1; fi
+      ```
+
+      Use `local` for variables inside functions so they do not leak.  To return data,
+      **print** it and capture with `$( )`: `size=$(get_size "$file")`.
+
+exercises:
+  - id: rename-loop
+    title: Batch rename
+    instructions: |
+      **~/photos** contains files named `IMG_1.JPG`, `IMG_2.JPG`, ...  Rename **all** of them
+      so that the extension is lower case: `IMG_1.jpg`, `IMG_2.jpg`, ...
+    setup: |
+      rm -rf {home}/photos; mkdir -p {home}/photos; for i in 1 2 3 4 5 6 7; do echo "pic $i" > {home}/photos/IMG_$i.JPG; done
+      chown -R student: {home}/photos
+    reference: for f in ~/photos/*.JPG; do mv "$f" "${f%.JPG}.jpg"; done
+    alternatives: ['cd ~/photos && for f in *.JPG; do mv "$f" "$(basename "$f" .JPG).jpg"; done']
+    checks:
+      - {type: command, run: "ls /home/student/photos/*.JPG 2>/dev/null | wc -l", stdout_equals: "0", fail: "Some .JPG files remain."}
+      - {type: command, run: "ls /home/student/photos/*.jpg | wc -l", stdout_equals: "7", fail: "There should be seven .jpg files."}
+      - {type: file_contains, path: ~/photos/IMG_4.jpg, text: pic 4, fail: "IMG_4.jpg does not contain the original picture data."}
+    hints:
+      - Loop over the files and rename each one.
+      - "for f in ~/photos/*.JPG; do mv ...; done - ${f%.JPG} removes the suffix from the name."
+      - for f in ~/photos/*.JPG; do mv "$f" "${f%.JPG}.jpg"; done
+      - "${f%.JPG} strips .JPG from the end of the variable's value, then .jpg is appended. Quotes protect names with spaces."
+  - id: read-lines
+    title: Process a list of users
+    instructions: |
+      **~/newusers.txt** contains one user name per line.  Write an executable script
+      **~/mkhomes.sh** that reads the file **line by line** and creates a directory
+      **~/homes/NAME** for every name (create ~/homes if needed).  Run it.
+
+      Careful: one of the "names" contains a space.
+    setup: |
+      printf 'alice\nbob\nmary jane\ncarol\n' > {home}/newusers.txt; chown student: {home}/newusers.txt
+      rm -rf {home}/homes {home}/mkhomes.sh
+    reference: |
+      cat > ~/mkhomes.sh <<'EOF'
+      #!/bin/bash
+      mkdir -p ~/homes
+      while IFS= read -r name; do
+          mkdir -p ~/homes/"$name"
+      done < ~/newusers.txt
+      EOF
+      chmod +x ~/mkhomes.sh && ~/mkhomes.sh
+    wrong:
+      - run: |
+          mkdir -p ~/homes; for n in $(cat ~/newusers.txt); do mkdir -p ~/homes/$n; done
+          printf '#!/bin/bash\ntrue\n' > ~/mkhomes.sh; chmod +x ~/mkhomes.sh
+        expect: partial
+    checks:
+      - {type: file_exists, path: ~/mkhomes.sh}
+      - {type: dir_exists, path: ~/homes/alice}
+      - {type: dir_exists, path: ~/homes/carol}
+      - {type: dir_exists, path: "~/homes/mary jane", fail: "There is no directory 'mary jane' - did the loop split the line at the space? Use while IFS= read -r ... and quote \"$name\"."}
+      - {type: not_exists, path: ~/homes/jane, fail: "A directory 'jane' exists - the name 'mary jane' was split into two words."}
+    hints:
+      - Read the file with a while loop rather than for ... in $(cat ...).
+      - "while IFS= read -r name; do ...; done < ~/newusers.txt - and quote \"$name\"."
+      - "while IFS= read -r name; do mkdir -p ~/homes/\"$name\"; done < ~/newusers.txt"
+      - "read -r takes a whole line into name; quoting keeps 'mary jane' as one directory name."
+  - id: function
+    title: Write a function
+    instructions: |
+      Write an executable script **~/sizes.sh** that defines a function **human** which takes
+      a number of bytes and prints it in KB (integer division by 1024) followed by ` KB`.
+      The script must call the function for **each of its arguments**, one per line:
+
+          $ ./sizes.sh 2048 10240 500
+          2 KB
+          10 KB
+          0 KB
+    setup: rm -f {home}/sizes.sh
+    reference: |
+      cat > ~/sizes.sh <<'EOF'
+      #!/bin/bash
+      human() {
+          echo "$(( $1 / 1024 )) KB"
+      }
+      for n in "$@"; do human "$n"; done
+      EOF
+      chmod +x ~/sizes.sh
+    checks:
+      - {type: script, path: ~/sizes.sh, args: ["2048", "10240", "500"], stdout_equals: "2 KB\n10 KB\n0 KB"}
+      - {type: file_contains, path: ~/sizes.sh, regex: '(function\s+human|human\s*\(\s*\))',
+         fail: "The script must define a function called human."}
+    hints:
+      - Define the function first, then loop over the script's arguments.
+      - "name() { ...; } defines a function; inside it, $1 is the function's own first argument."
+      - "human() { echo \"$(( $1 / 1024 )) KB\"; }   then   for n in \"$@\"; do human \"$n\"; done"
+      - "Arithmetic expansion does integer division, so 500/1024 = 0."
+
+quiz:
+  questions:
+    - id: q-readline
+      type: mcq
+      topic: while and until
+      prompt: What is the safest way to process a file line by line in Bash?
+      options: ["for line in $(cat file)", "while IFS= read -r line; do ...; done < file", "cat file | for line", "read file"]
+      answer: 1
+    - id: q-continue
+      type: mcq
+      topic: break and continue
+      prompt: What does continue do inside a loop?
+      options: [Exits the loop, Skips the rest of this iteration and goes to the next, Restarts the script, Pauses]
+      answer: 1
+    - id: q-until
+      type: truefalse
+      topic: while and until
+      prompt: An until loop repeats as long as its condition command fails.
+      answer: true
+    - id: q-return
+      type: mcq
+      topic: Functions
+      prompt: How does a Bash function usually give a computed string back to its caller?
+      options: ['return "string"', 'It prints it and the caller captures it with $(...)', 'By setting $?', It cannot]
+      answer: 1
+    - id: q-local
+      type: short
+      topic: Functions
+      prompt: Which keyword makes a variable visible only inside a function?
+      answer: [local]
+    - id: q-loop-out
+      type: interpret
+      topic: for loops
+      prompt: What is printed?
+      output: 'for i in {1..3}; do (( i == 2 )) && continue; echo $i; done'
+      options: ["1 2 3", "1 3", "2", "1"]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Multiplication table
+      topic: for loops
+      prompt: |
+        Write an executable script **~/table.sh** that prints the multiplication table of its
+        argument from 1 to 5 in the form `N x M = P`:
+
+            $ ./table.sh 3
+            3 x 1 = 3
+            3 x 2 = 6
+            3 x 3 = 9
+            3 x 4 = 12
+            3 x 5 = 15
+      setup: rm -f {home}/table.sh
+      reference: |
+        printf '#!/bin/bash\nfor i in {1..5}; do echo "$1 x $i = $(( $1 * i ))"; done\n' > ~/table.sh
+        chmod +x ~/table.sh
+      checks:
+        - {type: script, path: ~/table.sh, args: ["3"], stdout_equals: "3 x 1 = 3\n3 x 2 = 6\n3 x 3 = 9\n3 x 4 = 12\n3 x 5 = 15"}
+        - {type: script, path: ~/table.sh, args: ["7"], stdout_regex: '7 x 5 = 35'}
+      hints:
+        - Loop over 1 to 5 and compute the product each time.
+        - "for i in {1..5}; and $(( $1 * i ))."
+        - "for i in {1..5}; do echo \"$1 x $i = $(( $1 * i ))\"; done"
+        - "Save it with a shebang, chmod +x, run ./table.sh 3."

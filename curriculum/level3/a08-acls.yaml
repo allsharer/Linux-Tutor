@@ -1,0 +1,174 @@
+id: a08-acls
+level: advanced
+module: system
+title: Advanced permissions and ACLs
+duration: 40
+objectives:
+  - Explain the limits of owner/group/other permissions
+  - Grant and remove per-user and per-group access with setfacl
+  - Use default ACLs so new files inherit access
+  - Understand the ACL mask and how ls -l shows ACLs
+
+sections:
+  - title: Why ACLs?
+    content: |
+      Classic permissions give exactly three categories.  What if the **finance** group
+      owns a directory but one auditor, **eve**, needs read access - without joining the
+      group?  **Access Control Lists (ACLs)** add extra entries for named users and groups.
+
+      ACLs are supported by ext4, xfs, btrfs and most modern filesystems.  A `+` after the
+      mode in `ls -l` signals an ACL:
+
+      ```
+      drwxrwx---+ 2 root finance 4096 ... reports
+      ```
+  - title: setfacl and getfacl
+    content: |
+      ```
+      setfacl -m u:eve:rx /srv/finance/reports       # add/modify a user entry
+      setfacl -m g:auditors:r report.pdf             # a group entry
+      setfacl -x u:eve /srv/finance/reports          # remove eve's entry
+      setfacl -b file                                 # remove all ACL entries
+      setfacl -R -m u:eve:rX /srv/finance            # recursive (X = x only on dirs)
+      getfacl /srv/finance/reports
+      ```
+
+      ```
+      # file: srv/finance/reports
+      # owner: root
+      # group: finance
+      user::rwx
+      user:eve:r-x
+      group::rwx
+      mask::rwx
+      other::---
+      ```
+  - title: Default ACLs and the mask
+    content: |
+      A **default ACL** on a directory is copied to everything created inside it:
+
+      ```
+      setfacl -d -m g:devteam:rwX /srv/project       # new files get devteam access
+      ```
+
+      The **mask** is the maximum permission for named users, named groups and the owning
+      group.  `chmod g=r file` on a file with an ACL changes the **mask**, which can
+      silently reduce named entries ("#effective:r--" in getfacl output).
+
+      :::tip
+      Copy ACLs with `getfacl -R dir > acl.bak` and restore with `setfacl --restore=acl.bak`.
+      `cp -a` and `rsync -A` preserve ACLs; plain cp does not.
+      :::
+
+exercises:
+  - id: grant-user
+    title: Give one user access
+    instructions: |
+      **/srv/finance** belongs to root:finance with mode 2770.  The auditor **eve** (not
+      in the finance group) needs **read** access to the directory and its files: she must
+      be able to `ls /srv/finance` and `cat /srv/finance/q1.txt` - but **not write**.
+      Do **not** add eve to the group and do **not** open the directory to "others".
+    setup: |
+      id eve >/dev/null 2>&1 || useradd -m eve
+      getent group finance >/dev/null || groupadd finance
+      rm -rf /srv/finance; mkdir -p /srv/finance; echo "Q1: 1.2M" > /srv/finance/q1.txt
+      chown -R root:finance /srv/finance; chmod 2770 /srv/finance; chmod 660 /srv/finance/q1.txt
+      gpasswd -d eve finance 2>/dev/null; true
+    reference: sudo setfacl -R -m u:eve:rX /srv/finance
+    alternatives: ['sudo setfacl -m u:eve:rx /srv/finance && sudo setfacl -m u:eve:r /srv/finance/q1.txt']
+    checks:
+      - {type: command, user: eve, run: "ls /srv/finance && cat /srv/finance/q1.txt", stdout_contains: "Q1: 1.2M",
+         fail: "eve still cannot list the directory or read q1.txt."}
+      - {type: command, user: eve, run: "touch /srv/finance/eve-was-here 2>/dev/null; echo $?", stdout_regex: '^[1-9]',
+         fail: "eve can create files in /srv/finance - read access only was requested."}
+    constraints:
+      - {type: not, check: {type: user_in_group, user: eve, group: finance}, fail: "eve was added to the finance group."}
+      - {type: mode, path: /srv/finance, lacks: o+rx, fail: "The directory was opened to all other users."}
+    hints:
+      - ACLs can add an entry for one specific user.
+      - "setfacl -m u:eve:rx on the directory (x lets her enter), r on the file; -R with capital X does both."
+      - sudo setfacl -R -m u:eve:rX /srv/finance
+      - "getfacl /srv/finance shows user:eve:r-x; ls -l shows a + after the mode."
+  - id: default-acl
+    title: Inherited access
+    instructions: |
+      Set a **default ACL** on **/srv/shared-docs** so that every **new** file created in it
+      is readable and writable by the group **editors** (in addition to its normal
+      permissions).  Then prove it: create the file **/srv/shared-docs/test.txt** (as student).
+    setup: |
+      getent group editors >/dev/null || groupadd editors
+      rm -rf /srv/shared-docs; mkdir -p /srv/shared-docs; chown student: /srv/shared-docs; chmod 755 /srv/shared-docs
+    reference: |
+      setfacl -d -m g:editors:rw /srv/shared-docs
+      setfacl -m g:editors:rwx /srv/shared-docs
+      touch /srv/shared-docs/test.txt
+    alternatives: ['setfacl -m d:g:editors:rwX /srv/shared-docs && touch /srv/shared-docs/test.txt']
+    checks:
+      - {type: command, run: "getfacl -cp /srv/shared-docs", stdout_regex: '^default:group:editors:rw[-x]',
+         fail: "The directory has no default ACL entry giving editors rw (setfacl -d -m g:editors:rw ...)."}
+      - {type: command, run: "getfacl -cp /srv/shared-docs/test.txt", stdout_regex: '^group:editors:rw[-x]',
+         fail: "test.txt did not inherit an editors:rw entry - was it created after the default ACL was set?"}
+    hints:
+      - Default ACLs are set with -d and apply to files created later.
+      - "setfacl -d -m g:editors:rw DIR"
+      - setfacl -d -m g:editors:rw /srv/shared-docs && touch /srv/shared-docs/test.txt
+      - "getfacl /srv/shared-docs/test.txt shows group:editors:rw- inherited from the directory's default ACL."
+
+quiz:
+  questions:
+    - id: q-plus
+      type: interpret
+      topic: Why ACLs?
+      prompt: What does the + at the end of this mode indicate?
+      output: "-rw-r-----+ 1 root finance 120 budget.xlsx"
+      options: [The file is executable, The file has an ACL with extra entries, The file is sticky, The file is compressed]
+      answer: 1
+    - id: q-x
+      type: short
+      topic: setfacl and getfacl
+      prompt: Which setfacl option removes ALL extended ACL entries from a file?
+      answer: ["-b", "--remove-all"]
+    - id: q-default
+      type: truefalse
+      topic: Default ACLs and the mask
+      prompt: A default ACL on a directory changes the permissions of files that already exist in it.
+      answer: false
+    - id: q-mask
+      type: mcq
+      topic: Default ACLs and the mask
+      prompt: "getfacl shows `user:eve:rw-   #effective:r--`.  Why?"
+      options: [eve is not logged in, The ACL mask limits named entries to r, The file is read-only, ACLs are disabled]
+      answer: 1
+    - id: q-cp
+      type: troubleshoot
+      topic: Default ACLs and the mask
+      prompt: After copying a directory with plain cp -r, the ACLs are gone.  Which command preserves them?
+      options: [cp -a, mv, cat, ln]
+      answer: 0
+    - id: q-group
+      type: mcq
+      topic: setfacl and getfacl
+      prompt: Which command gives the group auditors read access to report.pdf?
+      options: [chmod g+r report.pdf, "setfacl -m g:auditors:r report.pdf", chgrp auditors report.pdf, "setfacl -x g:auditors report.pdf"]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Revoke access
+      topic: setfacl and getfacl
+      prompt: |
+        **/srv/projects/plan.txt** has ACL entries for users **tom** and **jerry**.  Remove
+        **tom's** entry only.  jerry must keep his access.
+      setup: |
+        for u in tom jerry; do id $u >/dev/null 2>&1 || useradd -m $u; done
+        mkdir -p /srv/projects; echo plan > /srv/projects/plan.txt; chmod 640 /srv/projects/plan.txt
+        setfacl -b /srv/projects/plan.txt; setfacl -m u:tom:rw,u:jerry:r /srv/projects/plan.txt
+      reference: sudo setfacl -x u:tom /srv/projects/plan.txt
+      checks:
+        - {type: command, run: "getfacl -cp /srv/projects/plan.txt | grep -c '^user:tom:' || true", stdout_equals: "0"}
+      constraints:
+        - {type: acl, path: /srv/projects/plan.txt, entry: "user:jerry:r--", fail: "jerry's entry was removed too."}
+      hints:
+        - setfacl can remove a single entry.
+        - "-x u:NAME"
+        - sudo setfacl -x u:tom /srv/projects/plan.txt
+        - "setfacl -b would remove jerry too; -x removes one entry."

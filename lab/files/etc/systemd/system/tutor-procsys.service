@@ -1,0 +1,15 @@
+# Linux Tutor laboratory: Podman mounts /proc/sys read-only.  Remount it read-write so
+# that *namespaced* kernel parameters (net.*) can be practised with sysctl.  Host-wide
+# parameters (kernel.*, vm.*) remain protected by the user namespace and stay read-only.
+[Unit]
+Description=Make namespaced sysctls writable (Linux Tutor laboratory)
+DefaultDependencies=no
+Before=systemd-sysctl.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/mount -o remount,rw /proc/sys
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

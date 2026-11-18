@@ -1,0 +1,17 @@
+Package: linux-tutor
+Version: @VERSION@
+Section: education
+Priority: optional
+Architecture: all
+Maintainer: Linux Tutor maintainers <linux-tutor@localhost>
+Depends: python3 (>= 3.10), python3-pyqt6 | python3-pyside6.qtwidgets, python3-pyte, python3-yaml, python3-markdown, podman (>= 4.0), uidmap, util-linux
+Recommends: passt | slirp4netns, fuse-overlayfs, fonts-dejavu-core
+Installed-Size: @SIZE@
+Homepage: https://example.invalid/linux-tutor
+Description: interactive, hands-on Linux learning and assessment environment
+ Linux Tutor teaches Linux from first steps to system administration in the
+ spirit of the classic DOS tutors: structured lessons and lectures, a genuine
+ Bash shell running in an isolated rootless Podman laboratory, practical
+ exercises marked on their outcome (any valid method is accepted), progressive
+ hints, end-of-lesson assessments and level examinations, progress tracking
+ and an ungraded practice mode.

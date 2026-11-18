@@ -1,0 +1,210 @@
+id: a10-partitioning
+level: advanced
+module: storage
+title: Disk partitioning and filesystem management
+duration: 45
+objectives:
+  - Explain MBR and GPT partition tables
+  - Create and inspect partitions with parted, fdisk and sfdisk
+  - Choose, create, check, label and resize filesystems
+  - Plan swap and understand its role
+
+sections:
+  - title: Partition tables
+    content: |
+      A disk is divided into **partitions**, described by a **partition table**:
+
+      | | MBR (msdos) | GPT |
+      |---|---|---|
+      | max disk size | 2 TiB | 8 ZiB |
+      | partitions | 4 primary (or extended + logical) | 128 by default |
+      | redundancy | single copy | backup table at the end of the disk + CRC |
+      | boot | BIOS | UEFI (needs an EFI System Partition) |
+
+      Use **GPT** for all new disks.  Devices: `/dev/sda` (SATA/SCSI), `/dev/nvme0n1`
+      (NVMe, partitions `nvme0n1p1`), `/dev/vda` (virtual).
+
+      ```
+      lsblk -f            # devices, partitions, filesystems, mount points
+      sudo blkid          # UUIDs and types
+      ```
+  - title: Creating partitions
+    content: |
+      | Tool | Style |
+      |---|---|
+      | `fdisk` / `gdisk` | interactive menus (`n` new, `p` print, `w` write) |
+      | `parted` | interactive or scriptable (`-s`) |
+      | `sfdisk` | scriptable, can dump and restore tables |
+
+      ```
+      sudo parted -s /dev/sdb mklabel gpt
+      sudo parted -s /dev/sdb mkpart data ext4 1MiB 50%
+      sudo parted -s /dev/sdb mkpart logs xfs 50% 100%
+      sudo parted /dev/sdb print
+      sudo sfdisk -d /dev/sdb > sdb-table.backup     # save the table
+      ```
+
+      Start partitions at 1 MiB for correct alignment.  After changing the table of a disk
+      in use, `partprobe` asks the kernel to re-read it.
+
+      :::note
+      In the laboratory there are no spare disks, so you partition **image files**.  The
+      partitioning tools work on them exactly as on real disks.
+      :::
+  - title: Filesystems
+    content: |
+      | Filesystem | Typical use | Notes |
+      |---|---|---|
+      | **ext4** | general purpose, default on Ubuntu | can grow and shrink (offline) |
+      | **xfs** | large files, servers (RHEL default) | can grow, **cannot shrink** |
+      | **btrfs** | snapshots, checksums, subvolumes | |
+      | **vfat** | EFI partition, USB sticks shared with other OSes | |
+      | **swap** | virtual memory | `mkswap`, `swapon` |
+
+      ```
+      sudo mkfs.ext4 -L data /dev/sdb1
+      sudo e2label /dev/sdb1 archive        # change the label
+      sudo tune2fs -l /dev/sdb1 | head      # ext4 parameters
+      sudo e2fsck -f /dev/sdb1              # check (unmounted!)
+      sudo resize2fs /dev/sdb1              # grow ext4 to fill the partition
+      sudo xfs_growfs /mountpoint           # grow xfs (mounted)
+      ```
+
+      :::warning
+      Never run fsck on a mounted filesystem, and never mkfs a partition you have not
+      double-checked with lsblk.
+      :::
+  - title: Swap
+    content: |
+      **Swap** is disk space used when RAM is full; it prevents crashes at the cost of
+      speed.  It can be a partition or a file:
+
+      ```
+      sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile
+      sudo mkswap /swapfile && sudo swapon /swapfile
+      echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+      swapon --show; free -h
+      ```
+
+      `vm.swappiness` (sysctl) tunes how eagerly the kernel swaps.
+
+exercises:
+  - id: gpt-layout
+    title: Partition a disk
+    instructions: |
+      **~/disk1.img** is a blank 200 MB "disk".  Give it a **GPT** partition table with
+      **two partitions**:
+
+      1. name `data`, from **1MiB** to **120MiB**;
+      2. name `logs`, from **120MiB** to the **end of the disk**.
+
+      (`parted -s ~/disk1.img mklabel gpt` ... `mkpart NAME START END`.)
+    setup: |
+      rm -f {home}/disk1.img; truncate -s 200M {home}/disk1.img; chown student: {home}/disk1.img
+    reference: |
+      parted -s ~/disk1.img mklabel gpt
+      parted -s ~/disk1.img mkpart data ext4 1MiB 120MiB
+      parted -s ~/disk1.img mkpart logs ext4 120MiB 100%
+    alternatives:
+      - "printf 'label: gpt\\nstart=2048, size=243712, name=data\\nstart=245760, name=logs\\n' | sfdisk ~/disk1.img"
+    checks:
+      - {type: command, run: "sfdisk -J /home/student/disk1.img | grep -o '\"label\":\"[a-z]*\"\\|\"label\": \"[a-z]*\"' | head -1", stdout_contains: gpt,
+         fail: "~/disk1.img has no GPT partition table."}
+      - {type: command, run: "sfdisk -l -o Device,Start,End,Name /home/student/disk1.img | grep -c 'disk1.img[0-9]'", stdout_equals: "2",
+         fail: "The disk should have exactly two partitions."}
+      - {type: command, run: "sfdisk -l -o Device,Start,Name /home/student/disk1.img | awk '/img1/{print $2, $3}'", stdout_equals: "2048 data",
+         fail: "Partition 1 must start at 1MiB (sector 2048) and be named data."}
+      - {type: command, run: "sfdisk -l -o Device,Start,End,Name /home/student/disk1.img | awk '/img2/{print $2, $4}'", stdout_equals: "245760 logs",
+         fail: "Partition 2 must start at 120MiB (sector 245760) and be named logs."}
+      - {type: command, run: "sfdisk -l -o Device,End /home/student/disk1.img | awk '/img2/{print ($2 > 405000)}'", stdout_equals: "1",
+         fail: "Partition 2 does not extend (almost) to the end of the disk (use 100%)."}
+    hints:
+      - Create the label first, then the two partitions.
+      - "parted -s FILE mklabel gpt; parted -s FILE mkpart NAME FSTYPE START END"
+      - "parted -s ~/disk1.img mklabel gpt; parted -s ~/disk1.img mkpart data ext4 1MiB 120MiB; parted -s ~/disk1.img mkpart logs ext4 120MiB 100%"
+      - "parted ~/disk1.img print shows the result. The ext4 in mkpart is only a type hint - it does not create a filesystem."
+  - id: swapfile
+    title: Prepare a swap file
+    instructions: |
+      Create a **64 MB** swap file **/swapfile** that is ready to use: correct size,
+      **mode 600**, owned by root, and formatted with **mkswap**.  Also add the matching line
+      to **/etc/fstab**.  (Activating it with swapon is not possible inside the lab.)
+    setup: |
+      rm -f /swapfile; grep -v '^/swapfile' /etc/fstab > /tmp/f.$$; cat /tmp/f.$$ > /etc/fstab; rm -f /tmp/f.$$
+    reference: |
+      sudo fallocate -l 64M /swapfile
+      sudo chmod 600 /swapfile
+      sudo mkswap /swapfile
+      echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+    alternatives: ["sudo dd if=/dev/zero of=/swapfile bs=1M count=64 && sudo chmod 600 /swapfile && sudo mkswap /swapfile && echo '/swapfile none swap defaults 0 0' | sudo tee -a /etc/fstab"]
+    checks:
+      - {type: command, run: "stat -c %s /swapfile", stdout_equals: "67108864", fail: "/swapfile is not exactly 64 MiB."}
+      - {type: mode, path: /swapfile, mode: "600"}
+      - {type: owner, path: /swapfile, user: root}
+      - {type: command, run: "blkid -o value -s TYPE /swapfile", stdout_equals: swap, fail: "/swapfile has not been formatted with mkswap."}
+      - {type: file_contains, path: /etc/fstab, regex: '^/swapfile\s+(none|swap)\s+swap\s+\S+\s+0\s+0'}
+    hints:
+      - Create, protect, format, register.
+      - "fallocate -l 64M, chmod 600, mkswap; fstab line: /swapfile none swap sw 0 0"
+      - sudo fallocate -l 64M /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile
+      - "Then echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab. A swap file readable by others would leak memory contents - hence 600."
+
+quiz:
+  questions:
+    - id: q-gpt
+      type: mcq
+      topic: Partition tables
+      prompt: Which statement about GPT is true?
+      options: [It is limited to 4 primary partitions, It keeps a backup copy of the partition table at the end of the disk, It only works with BIOS, It cannot address disks over 2 TiB]
+      answer: 1
+    - id: q-nvme
+      type: mcq
+      topic: Partition tables
+      prompt: What is the first partition of the NVMe disk nvme0n1 called?
+      options: [/dev/nvme0n1a, /dev/nvme0n1p1, /dev/nvme1, /dev/sda1]
+      answer: 1
+    - id: q-xfs
+      type: truefalse
+      topic: Filesystems
+      prompt: An xfs filesystem can be shrunk with xfs_growfs -s.
+      answer: false
+    - id: q-fsck
+      type: troubleshoot
+      topic: Filesystems
+      prompt: You need to check /dev/sdb1, which is mounted at /data.  What must you do first?
+      options: [Nothing, Unmount it (or boot into rescue mode for /), Run mkfs, Delete the journal]
+      answer: 1
+    - id: q-sfdisk
+      type: short
+      topic: Creating partitions
+      prompt: Which sfdisk option dumps a partition table in a form that can be restored later?
+      answer: ["-d", "--dump"]
+    - id: q-label
+      type: interpret
+      topic: Filesystems
+      prompt: What is the filesystem label of sdb1?
+      output: |
+        $ lsblk -f /dev/sdb
+        NAME   FSTYPE LABEL   UUID                                 MOUNTPOINT
+        sdb
+        ├─sdb1 ext4   backups 7c1d2f3a-...                         /srv/backups
+        └─sdb2 swap           0a9b8c7d-...                         [SWAP]
+      options: [ext4, backups, /srv/backups, sdb1]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Filesystem with a label
+      topic: Filesystems
+      prompt: |
+        Create an **ext4** filesystem with the label **archive** in the image file
+        **~/archive.img** (it already exists, 64 MB).
+      setup: "rm -f {home}/archive.img; truncate -s 64M {home}/archive.img; chown student: {home}/archive.img"
+      reference: mkfs.ext4 -q -L archive ~/archive.img
+      checks:
+        - {type: command, run: "blkid -o value -s TYPE /home/student/archive.img", stdout_equals: ext4}
+        - {type: command, run: "blkid -o value -s LABEL /home/student/archive.img", stdout_equals: archive}
+      hints:
+        - mkfs.ext4 creates the filesystem; one option sets the label.
+        - "-L LABEL"
+        - mkfs.ext4 -L archive ~/archive.img
+        - "blkid ~/archive.img shows LABEL=\"archive\" TYPE=\"ext4\". e2label can change a label later."

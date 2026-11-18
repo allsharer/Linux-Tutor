@@ -1,0 +1,202 @@
+id: a13-firewall
+level: advanced
+module: network
+title: Firewall management
+duration: 45
+objectives:
+  - Explain packet filtering, chains, hooks and policies
+  - Write nftables rules to allow and block traffic
+  - Make rules persistent and test them functionally
+  - Relate nftables to iptables, ufw and firewalld
+
+sections:
+  - title: Netfilter and nftables
+    content: |
+      The Linux kernel filters packets with **netfilter**.  The modern interface is
+      **nftables** (`nft`); `iptables` is the older one (on Ubuntu, `iptables` is a
+      compatibility wrapper over nftables).  Front ends: **ufw** (Ubuntu) and **firewalld**
+      (RHEL) generate rules for you.
+
+      Concepts:
+
+      * a **table** holds chains (family `inet` = IPv4 + IPv6);
+      * a **chain** attaches to a **hook**: `input` (to this host), `forward` (routed
+        through), `output` (from this host);
+      * the chain's **policy** (accept/drop) applies when no rule matches;
+      * **rules** are checked in order; the first final verdict (accept/drop/reject) wins.
+  - title: A host firewall
+    content: |
+      ```
+      sudo nft add table inet filter
+      sudo nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'
+      sudo nft add rule inet filter input ct state established,related accept
+      sudo nft add rule inet filter input iif lo accept
+      sudo nft add rule inet filter input tcp dport 22 accept
+      sudo nft add rule inet filter input tcp dport { 80, 443 } accept
+      sudo nft list ruleset
+      ```
+
+      :::warning
+      On a remote server, allow SSH **before** setting a drop policy - or you lock
+      yourself out.  Test with a second session open, or schedule a rollback
+      (`echo "nft flush ruleset" | at now + 5 minutes`).
+      :::
+
+      Remove a rule by handle: `nft -a list chain inet filter input`, then
+      `nft delete rule inet filter input handle 7`.
+  - title: Persistence and testing
+    content: |
+      Rules in the kernel are lost at reboot.  Debian/Ubuntu load **/etc/nftables.conf**
+      when the **nftables** service is enabled:
+
+      ```
+      sudo nft list ruleset | sudo tee /etc/nftables.conf   # (add '#!/usr/sbin/nft -f' and 'flush ruleset' at the top)
+      sudo nft -c -f /etc/nftables.conf                       # check syntax only
+      sudo systemctl enable nftables
+      ```
+
+      Always **test functionally** - a rule that looks right may never match.  From a
+      client: `nc -zv host 80`, `curl`; on the host: counters (`counter` keyword) show
+      whether a rule matches.
+
+      With ufw the same host firewall is: `ufw allow 22/tcp; ufw allow 80,443/tcp; ufw enable`.
+
+exercises:
+  - id: block-port
+    title: Block one port
+    instructions: |
+      A test service listens on TCP **port 8081** (and another on 8082).  Create an nftables
+      table **inet filter** with an **input** chain (policy accept) and a rule that **drops**
+      TCP traffic to port **8081**.  Port 8082 must stay reachable.
+
+      The tutor tests from the lab itself with `curl http://127.0.0.1:8081/`.
+    setup: |
+      nft flush ruleset; pkill -f '^python3 -m http.server 808[12]' 2>/dev/null; sleep 0.3
+      nohup python3 -m http.server 8081 --directory /var/tmp >/dev/null 2>&1 &
+      nohup python3 -m http.server 8082 --directory /var/tmp >/dev/null 2>&1 &
+      sleep 1
+    cleanup: nft flush ruleset; pkill -f '^python3 -m http.server 808[12]' || true
+    reference: |
+      sudo nft add table inet filter
+      sudo nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }'
+      sudo nft add rule inet filter input tcp dport 8081 drop
+    alternatives: ["sudo nft -f - <<'EOF'\ntable inet filter {\n  chain input {\n    type filter hook input priority 0; policy accept;\n    tcp dport 8081 drop\n  }\n}\nEOF"]
+    checks:
+      - {type: nft_ruleset_contains, regex: 'tcp dport 8081 (counter packets \d+ bytes \d+ )?drop'}
+      - {type: command, run: "curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/ ; true", stdout_regex: '^000$',
+         fail: "Port 8081 still answers - the rule does not take effect (is the chain hooked into input?)."}
+    constraints:
+      - {type: command, run: "curl -s -m 3 -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/", stdout_equals: "200",
+         fail: "Port 8082 is blocked too - only 8081 should be dropped."}
+    hints:
+      - Create the table, a base chain on the input hook, then the rule.
+      - "nft add chain inet filter input '{ type filter hook input priority 0; policy accept; }'"
+      - sudo nft add rule inet filter input tcp dport 8081 drop
+      - "curl -m 3 http://127.0.0.1:8081/ now times out while 8082 still answers."
+  - id: persist
+    title: Make it permanent
+    instructions: |
+      Write a complete **/etc/nftables.conf** that, when loaded, creates table **inet filter**
+      with an **input** chain whose **policy is drop**, allowing only:
+
+      * established/related traffic,
+      * the loopback interface,
+      * TCP port **22**.
+
+      The file must pass `nft -c -f /etc/nftables.conf` and the **nftables** service must be
+      **enabled**.  (Do not load it now - the tutor checks the file and the service.)
+    setup: |
+      nft flush ruleset; cp /usr/share/doc/nftables/examples/sysvinit/nftables.init /dev/null 2>&1
+      printf '#!/usr/sbin/nft -f\nflush ruleset\n' > /etc/nftables.conf; systemctl disable nftables 2>/dev/null; true
+    cleanup: nft flush ruleset || true
+    reference: |
+      sudo tee /etc/nftables.conf <<'EOF'
+      #!/usr/sbin/nft -f
+      flush ruleset
+      table inet filter {
+        chain input {
+          type filter hook input priority 0; policy drop;
+          ct state established,related accept
+          iif lo accept
+          tcp dport 22 accept
+        }
+      }
+      EOF
+      sudo systemctl enable nftables
+    checks:
+      - {type: command, run: "nft -c -f /etc/nftables.conf && echo valid", stdout_equals: valid, fail: "nft -c -f /etc/nftables.conf reports a syntax error."}
+      - type: command
+        run: "nft flush ruleset; nft -f /etc/nftables.conf && nft list chain inet filter input; nft flush ruleset"
+        stdout_regex: ['policy drop', 'ct state (established,related|\{ ?established, ?related ?\}) accept', 'iif "?lo"? accept', 'tcp dport 22 accept']
+        fail: "Loading the file does not produce an input chain with policy drop and the three accept rules."
+      - {type: service_enabled, name: nftables}
+    hints:
+      - Write the ruleset in nft's file syntax, starting with flush ruleset.
+      - "A base chain line: type filter hook input priority 0; policy drop;"
+      - "See the reference structure: table inet filter { chain input { ... } }"
+      - "Check with sudo nft -c -f /etc/nftables.conf, then sudo systemctl enable nftables."
+
+quiz:
+  questions:
+    - id: q-hook
+      type: mcq
+      topic: Netfilter and nftables
+      prompt: Which hook sees packets destined for the local machine?
+      options: [output, forward, input, postrouting]
+      answer: 2
+    - id: q-policy
+      type: truefalse
+      topic: Netfilter and nftables
+      prompt: A chain's policy is applied to packets that no rule in the chain decided on.
+      answer: true
+    - id: q-lockout
+      type: troubleshoot
+      topic: A host firewall
+      prompt: "Connected over SSH, an admin runs `nft add chain inet filter input '{ type filter hook input priority 0; policy drop; }'` first.  What happens?"
+      options: [Nothing, The SSH session freezes - all incoming traffic including SSH is now dropped, Only HTTP is blocked, nft refuses]
+      answer: 1
+    - id: q-persist
+      type: short
+      topic: Persistence and testing
+      prompt: Which file does the nftables service load on Debian/Ubuntu?
+      answer: [/etc/nftables.conf]
+    - id: q-ufw
+      type: mcq
+      topic: Persistence and testing
+      prompt: What is ufw?
+      options: [A different kernel firewall, A simplified front end that generates netfilter rules, A web firewall, A VPN]
+      answer: 1
+    - id: q-order
+      type: interpret
+      topic: Netfilter and nftables
+      prompt: Is TCP port 80 reachable with this chain?
+      output: |
+        chain input {
+          type filter hook input priority 0; policy accept;
+          tcp dport 80 drop
+          tcp dport 80 accept
+        }
+      options: [Yes - accept is listed, "No - the first matching rule (drop) wins", Only from localhost, It depends on the policy]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Allow web, deny the rest
+      topic: A host firewall
+      prompt: |
+        Create table **inet web** with an **input** chain (policy **accept**) containing a rule
+        that **accepts** TCP ports **80 and 443** and, after it, a rule that **drops** TCP port
+        **8080**.  (Use a set `{ 80, 443 }` or two rules.)
+      setup: nft flush ruleset
+      cleanup: nft flush ruleset || true
+      reference: |
+        sudo nft add table inet web
+        sudo nft add chain inet web input '{ type filter hook input priority 0; policy accept; }'
+        sudo nft add rule inet web input tcp dport '{ 80, 443 }' accept
+        sudo nft add rule inet web input tcp dport 8080 drop
+      checks:
+        - {type: command, run: "nft list chain inet web input", stdout_regex: ['tcp dport (\{ 80, 443 \}|80) accept', 'tcp dport 8080 drop']}
+      hints:
+        - Table, chain, then two rules.
+        - "tcp dport { 80, 443 } accept"
+        - "sudo nft add rule inet web input tcp dport '{ 80, 443 }' accept"
+        - "Quote the braces so the shell does not interpret them."

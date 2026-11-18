@@ -1,0 +1,180 @@
+id: i13-process-management
+level: intermediate
+module: processes
+title: Process management
+duration: 35
+objectives:
+  - Inspect processes in detail with ps, pgrep, top and /proc
+  - Interpret process states and resource columns
+  - Send the right signal for the job, by PID or by name
+  - Adjust priorities with nice and renice
+
+sections:
+  - title: Looking closely at processes
+    content: |
+      `ps` can show exactly the columns you want:
+
+      ```
+      $ ps -eo pid,ppid,user,stat,ni,%cpu,%mem,etime,cmd --sort=-%cpu | head
+      ```
+
+      | STAT | Meaning |
+      |---|---|
+      | `R` | running or runnable |
+      | `S` | sleeping (waiting for an event) - most processes |
+      | `D` | uninterruptible sleep, usually disk or network I/O |
+      | `T` | stopped (e.g. Ctrl+Z) |
+      | `Z` | zombie: finished, waiting for its parent to collect the status |
+
+      Every process has a directory **/proc/PID** with its command line (`cmdline`),
+      environment (`environ`), open files (`fd/`), and status (`status`).
+    examples:
+      - command: ps -eo pid,user,stat,cmd --forest | head -30
+        explanation: Process tree with selected columns.
+      - command: cat /proc/1/status | head
+        explanation: Kernel information about PID 1.
+  - title: top and htop
+    content: |
+      `top` header: uptime and load, task counts by state, CPU breakdown (`us` user,
+      `sy` system, `wa` waiting for I/O, `id` idle), memory.  Interactive keys:
+
+      * **P** sort by CPU, **M** by memory, **k** kill, **r** renice, **1** per-CPU view,
+        **q** quit.
+
+      `htop` is a friendlier alternative (installable from the lab repository).
+  - title: Signals in practice
+    content: |
+      | Want to... | Signal |
+      |---|---|
+      | ask a program to exit cleanly | `SIGTERM` (15) - default of kill |
+      | force an unresponsive program to die | `SIGKILL` (9) |
+      | make a daemon reload its config | `SIGHUP` (1) - for many services |
+      | pause / resume | `SIGSTOP` (19) / `SIGCONT` (18) |
+
+      ```
+      kill -HUP 1234          kill -s TERM 1234
+      pkill -u alice          # all of alice's processes
+      pkill -f "python app"   # match against the whole command line
+      killall nginx           # by exact name
+      ```
+
+      `kill -l` lists all signals.  A zombie cannot be killed - it is already dead; its
+      parent must reap it (or be killed itself).
+  - title: Priorities - nice and renice
+    content: |
+      The scheduler shares CPU time according to **niceness**, from **-20** (greedy,
+      highest priority) to **19** (nicest, lowest priority).  Default is 0.
+
+      ```
+      nice -n 10 tar czf backup.tgz /srv       # start with lower priority
+      renice -n 15 -p 4321                     # change a running process
+      sudo renice -n -5 -p 4321                # only root may raise priority
+      ```
+
+      Use nice for heavy background jobs (backups, compression) so interactive work stays
+      responsive.
+
+exercises:
+  - id: renice
+    title: Be nice
+    instructions: |
+      A CPU-heavy process named **batch-job** is running as student.  Lower its priority by
+      setting its **niceness to 10** - without restarting it.
+    setup: |
+      pkill -x batch-job; sleep 0.3
+      printf '#!/bin/bash\nwhile :; do sleep 0.01; done\n' > /usr/local/bin/batch-job; chmod 755 /usr/local/bin/batch-job
+      su student -c 'nohup /usr/local/bin/batch-job >/dev/null 2>&1 &'; sleep 0.5
+    cleanup: pkill -x batch-job || true
+    reference: renice -n 10 -p $(pgrep -x batch-job)
+    alternatives: ['renice 10 $(pgrep batch-job)']
+    checks:
+      - {type: process_running, pattern: /usr/local/bin/batch-job, fail: "batch-job is no longer running - it should be reniced, not killed."}
+      - {type: process_nice, pattern: /usr/local/bin/batch-job, nice: 10}
+    hints:
+      - Find the PID, then change the niceness of the running process.
+      - pgrep gives the PID; renice changes the niceness.
+      - renice -n 10 -p $(pgrep -x batch-job)
+      - "renice -n 10 -p PID sets niceness 10; ps -o ni,cmd -p PID confirms it. Non-root users may only increase niceness."
+  - id: hup
+    title: Reload, don't restart
+    instructions: |
+      The program **reloader** (running as student) re-reads its configuration when it
+      receives **SIGHUP**, and writes `reloaded` into **/tmp/reloader.log** each time.
+      Make it reload **without stopping it**.
+    setup: |
+      pkill -x reloader; sleep 0.3; rm -f /tmp/reloader.log
+      cat > /usr/local/bin/reloader <<'EOF'
+      #!/bin/bash
+      trap 'echo reloaded >> /tmp/reloader.log' HUP
+      while :; do sleep 1 & wait $!; done
+      EOF
+      chmod 755 /usr/local/bin/reloader
+      su student -c 'setsid /usr/local/bin/reloader </dev/null >/dev/null 2>&1 &'; sleep 0.5
+    cleanup: pkill -x reloader || true
+    reference: pkill -HUP -x reloader
+    alternatives: ['kill -HUP $(pgrep -x reloader)', 'kill -1 $(pgrep -x reloader)']
+    wrong:
+      - {run: pkill -x reloader, expect: incorrect}
+    checks:
+      - {type: file_contains, path: /tmp/reloader.log, text: reloaded, fail: "reloader has not logged a reload - did it receive SIGHUP?"}
+      - {type: process_running, pattern: /usr/local/bin/reloader, fail: "reloader is no longer running - you terminated it instead of asking it to reload."}
+    hints:
+      - The right signal asks a process to reload; the default kill signal terminates.
+      - SIGHUP (1) is the conventional reload signal.
+      - pkill -HUP -x reloader
+      - "kill -HUP PID or pkill -HUP -x reloader delivers SIGHUP; the program's trap writes 'reloaded' and keeps running."
+
+quiz:
+  questions:
+    - id: q-stat-d
+      type: mcq
+      topic: Looking closely at processes
+      prompt: What does process state D usually mean?
+      options: [Dead, Uninterruptible sleep - typically waiting for disk or network I/O, Debugging, Daemon]
+      answer: 1
+    - id: q-zombie
+      type: truefalse
+      topic: Signals in practice
+      prompt: "kill -9 removes a zombie process."
+      answer: false
+      explanation: A zombie has already exited; its parent must reap it.
+    - id: q-nice-range
+      type: mcq
+      topic: Priorities - nice and renice
+      prompt: Which niceness gives a process the LOWEST scheduling priority?
+      options: ["-20", "0", "10", "19"]
+      answer: 3
+    - id: q-renice-root
+      type: truefalse
+      topic: Priorities - nice and renice
+      prompt: An ordinary user may lower the niceness (raise the priority) of their own process below 0.
+      answer: false
+    - id: q-top
+      type: interpret
+      topic: top and htop
+      prompt: "In top's CPU line, what does a high 'wa' value indicate?"
+      output: "%Cpu(s):  5.0 us,  2.0 sy,  0.0 ni, 13.0 id, 80.0 wa,  0.0 hi,  0.0 si"
+      options: [The CPU is overloaded with calculations, The CPU is mostly waiting for I/O (disk or network), The system is idle, Swap is full]
+      answer: 1
+    - id: q-pkill-f
+      type: short
+      topic: Signals in practice
+      prompt: Which pkill option matches the pattern against the full command line instead of the process name?
+      answer: ["-f", "--full"]
+    - id: q-practical
+      type: practical
+      title: Start a low-priority job
+      topic: Priorities - nice and renice
+      prompt: |
+        Start the command `sleep 4000` in the background with a **niceness of 15**.
+      setup: pkill -xf 'sleep 4000' || true
+      cleanup: pkill -xf 'sleep 4000' || true
+      reference: nice -n 15 sleep 4000 &
+      solution: nohup nice -n 15 sleep 4000 >/dev/null 2>&1 &
+      checks:
+        - {type: process_nice, pattern: "^sleep 4000$", nice: 15}
+      hints:
+        - The niceness can be chosen when the program starts.
+        - nice -n VALUE command, and & for the background.
+        - nice -n 15 sleep 4000 &
+        - "nice starts the command with the given niceness; ps -o ni,cmd -C sleep shows 15."

@@ -1,0 +1,209 @@
+id: i19-networking
+level: intermediate
+module: network
+title: Networking fundamentals
+duration: 40
+objectives:
+  - Explain IP addresses, subnets, gateways, ports and DNS
+  - Inspect interfaces, addresses and routes with ip
+  - Test connectivity with ping, and services with ss, nc and curl
+  - Understand name resolution through /etc/hosts and DNS
+
+sections:
+  - title: The essentials
+    content: |
+      * Every network **interface** (`eth0`, `enp3s0`, `wlan0`, `lo`) has one or more
+        **IP addresses**, e.g. `192.168.1.20/24`.
+      * The `/24` is the **prefix length**: the first 24 bits (192.168.1) identify the
+        **subnet**; hosts in the same subnet talk directly.
+      * Traffic for other networks goes to the **default gateway** (router).
+      * A **port** number (0-65535) identifies a service on a host: 22 SSH, 80 HTTP,
+        443 HTTPS, 53 DNS.  TCP is connection-oriented; UDP is not.
+      * **DNS** translates names (`example.org`) into addresses.
+      * `127.0.0.1` (`localhost`) is the **loopback** address - the machine itself.
+  - title: Interfaces and routes
+    content: |
+      The `ip` command (package iproute2) replaced the old `ifconfig` and `route`:
+
+      ```
+      $ ip -br addr               # brief list of interfaces and addresses
+      lo        UNKNOWN  127.0.0.1/8 ::1/128
+      eth0      UP       192.168.1.20/24
+      $ ip route
+      default via 192.168.1.1 dev eth0
+      192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.20
+      $ ip link set eth0 up       # bring an interface up (root)
+      ```
+
+      :::note
+      Your lab has networking disabled for safety, so it has only the loopback interface.
+      As root in the lab you may create *virtual* interfaces and even separate network
+      namespaces to experiment - nothing reaches the real network.
+      :::
+    examples:
+      - command: ip -br addr
+        explanation: Interfaces and addresses.
+      - command: ip route
+        explanation: The routing table.
+  - title: Testing connectivity and services
+    content: |
+      | Tool | Question it answers |
+      |---|---|
+      | `ping -c 3 HOST` | is the host reachable (ICMP)? |
+      | `ss -tlnp` | which TCP ports are **l**istening here, with **p**rocesses (`-u` for UDP) |
+      | `nc -zv HOST PORT` | can I open a TCP connection to that port? |
+      | `curl -I http://HOST/` | does the web server answer, and with which status? |
+      | `traceroute`, `tracepath` | which routers are on the path? |
+      | `dig NAME`, `host NAME`, `getent hosts NAME` | name resolution |
+
+      Work **bottom-up**: interface up? → address? → route? → ping the gateway? → DNS? →
+      port open? → application answering?
+    examples:
+      - command: ping -c 2 127.0.0.1
+        explanation: The loopback always answers.
+      - command: ss -tlnp
+        explanation: Listening TCP sockets.
+  - title: Name resolution
+    content: |
+      When a program looks up a name, the order in **/etc/nsswitch.conf** (`hosts: files dns`)
+      says: first **/etc/hosts**, then DNS servers from **/etc/resolv.conf**.
+
+      ```
+      # /etc/hosts
+      127.0.0.1    localhost
+      10.0.0.50    fileserver fileserver.lan
+      ```
+
+      `getent hosts NAME` resolves exactly the way programs do; `dig` asks DNS directly.
+
+exercises:
+  - id: local-web
+    title: Start and test a web server
+    instructions: |
+      1. Start a simple web server **in the background** that serves the directory
+         **~/www** on **port 8080**: `python3 -m http.server 8080 --directory ~/www &`
+      2. Use **curl** to download **http://localhost:8080/index.html** and save it as
+         **~/downloaded.html**.
+
+      The tutor checks that something listens on port 8080 and that the download worked.
+    setup: |
+      pkill -f '[h]ttp.server 8080' 2>/dev/null; rm -f {home}/downloaded.html
+      mkdir -p {home}/www; echo "<h1>Hello from the lab</h1>" > {home}/www/index.html; chown -R student: {home}/www
+    cleanup: pkill -f '[h]ttp.server 8080' || true
+    reference: |
+      python3 -m http.server 8080 --directory ~/www &
+      curl -o ~/downloaded.html http://localhost:8080/index.html
+    solution: |
+      nohup python3 -m http.server 8080 --directory ~/www >/dev/null 2>&1 &
+      sleep 1; curl -s -o ~/downloaded.html http://localhost:8080/index.html
+    checks:
+      - {type: port_listening, port: 8080}
+      - {type: file_contains, path: ~/downloaded.html, text: Hello from the lab}
+    hints:
+      - Start the server first, then fetch the page from localhost.
+      - "curl -o FILE URL saves a page; & puts the server in the background."
+      - "python3 -m http.server 8080 --directory ~/www &   then   curl -o ~/downloaded.html http://localhost:8080/index.html"
+      - "ss -tlnp shows the server listening on 0.0.0.0:8080. curl talks HTTP to it over the loopback interface."
+  - id: which-port
+    title: What is listening?
+    instructions: |
+      A service has been started in the lab that listens on a TCP port.  Which **port
+      number** is it listening on (other than 22 or 8080)?  Type the number.
+    answer_prompt: "Port:"
+    setup: |
+      pkill -x tutor-mystery 2>/dev/null; sleep 0.3
+      cp "$(readlink -f /usr/bin/nc)" /usr/local/bin/tutor-mystery
+      p=$(( 20000 + RANDOM % 20000 )); echo $p > /root/.mystery-port
+      nohup /usr/local/bin/tutor-mystery -lk -p $p >/dev/null 2>&1 &
+      sleep 0.5
+    cleanup: pkill -x tutor-mystery || true
+    reference: ss -tln
+    checks:
+      - {type: answer, command: "cat /root/.mystery-port"}
+    hints:
+      - List the listening TCP sockets.
+      - ss -tln shows listening TCP ports numerically.
+      - ss -tln
+      - "Look at the Local Address column - the unfamiliar :NNNNN is the service. sudo ss -tlnp also shows the program name."
+  - id: hosts
+    title: Name a host
+    instructions: |
+      Make the name **intranet.lab** resolve to **10.20.30.40** in your laboratory, without
+      DNS.  Test with `getent hosts intranet.lab`.
+    setup: grep -v intranet.lab /etc/hosts > /tmp/h.$$; cat /tmp/h.$$ > /etc/hosts; rm -f /tmp/h.$$
+    reference: echo "10.20.30.40 intranet.lab" | sudo tee -a /etc/hosts
+    checks:
+      - {type: command, run: "getent hosts intranet.lab", stdout_regex: '^10\.20\.30\.40\s+intranet\.lab'}
+    constraints:
+      - {type: file_contains, path: /etc/hosts, regex: '127\.0\.0\.1\s+localhost', fail: "The localhost entry is gone - /etc/hosts was overwritten."}
+    hints:
+      - Names can be resolved locally by a file in /etc, checked before DNS.
+      - Add a line "ADDRESS NAME" to /etc/hosts (with sudo tee -a).
+      - echo "10.20.30.40 intranet.lab" | sudo tee -a /etc/hosts
+      - "getent hosts intranet.lab now prints 10.20.30.40 intranet.lab. (Remember sudo tee -a, not sudo echo >>.)"
+
+quiz:
+  questions:
+    - id: q-prefix
+      type: mcq
+      topic: The essentials
+      prompt: Which addresses are in the subnet 192.168.10.0/24?
+      options: [192.168.10.1 to 192.168.10.254 (usable hosts), 192.168.0.0 to 192.168.255.255, Only 192.168.10.24, 10.0.0.0 to 10.255.255.255]
+      answer: 0
+    - id: q-port
+      type: mcq
+      topic: The essentials
+      prompt: Which port does SSH use by default?
+      options: ["21", "22", "80", "443"]
+      answer: 1
+    - id: q-ss
+      type: short
+      topic: Testing connectivity and services
+      prompt: Which command lists listening TCP ports numerically together with the owning processes? (with options)
+      answer: ["ss -tlnp", "ss -tlpn", "ss -lntp", "ss -ltnp", "re:(sudo\\s+)?ss\\s+-[tlnp]{4}"]
+    - id: q-order
+      type: mcq
+      topic: Name resolution
+      prompt: On a default Ubuntu system, what is consulted first when resolving a host name?
+      options: [DNS servers, /etc/hosts, The gateway, /etc/hostname]
+      answer: 1
+    - id: q-gateway
+      type: interpret
+      topic: Interfaces and routes
+      prompt: Where is traffic for 8.8.8.8 sent?
+      output: |
+        default via 10.0.0.1 dev eth0
+        10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.15
+      options: [Directly on eth0, To the gateway 10.0.0.1, Nowhere - no route, To 10.0.0.15]
+      answer: 1
+    - id: q-bottomup
+      type: troubleshoot
+      topic: Testing connectivity and services
+      prompt: |
+        `curl http://intranet/` fails.  `ping 10.0.0.30` (the intranet server's IP) works,
+        but `ping intranet` says "Name or service not known".  Where is the problem?
+      options: [The web server, Name resolution (DNS or /etc/hosts), The network cable, The firewall on port 80]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: A virtual interface
+      topic: Interfaces and routes
+      prompt: |
+        Create a **dummy** network interface called **lab0**, give it the address
+        **192.168.77.1/24** and bring it **up**.
+        (`ip link add NAME type dummy` creates it.)
+      setup: ip link del lab0 2>/dev/null || true
+      cleanup: ip link del lab0 2>/dev/null || true
+      reference: |
+        sudo ip link add lab0 type dummy
+        sudo ip addr add 192.168.77.1/24 dev lab0
+        sudo ip link set lab0 up
+      checks:
+        - {type: command, run: "ip -br addr show lab0", stdout_contains: "192.168.77.1/24"}
+        - {type: command, run: "ip -br link show lab0", stdout_regex: '\b(UP|UNKNOWN)\b', fail: "lab0 is not up (ip link set lab0 up)."}
+        - {type: command, run: "ip route show 192.168.77.0/24", stdout_contains: lab0, fail: "There is no route for 192.168.77.0/24 - is the interface up?"}
+      hints:
+        - Three steps - create the interface, add an address, bring it up.
+        - ip link add ...; ip addr add ... dev lab0; ip link set lab0 up (all with sudo).
+        - sudo ip link add lab0 type dummy && sudo ip addr add 192.168.77.1/24 dev lab0 && sudo ip link set lab0 up
+        - "When the interface comes up the kernel adds a route for 192.168.77.0/24 automatically; ping 192.168.77.1 answers."

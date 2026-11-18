@@ -1,0 +1,84 @@
+# Linux Tutor laboratory image
+#
+# A disposable Ubuntu system that students use for every practical exercise.
+# It boots systemd as PID 1 (so systemctl, journalctl, cron and sshd behave
+# like a real server) and runs entirely inside a rootless Podman container.
+#
+# Build:   linux-tutor-lab build      (or: podman build -t localhost/linux-tutor-lab:<ver> lab/)
+# The LAB_VERSION label must match linux_tutor/lab/__init__.py:LAB_IMAGE_VERSION.
+
+ARG BASE_IMAGE=docker.io/library/ubuntu:24.04
+FROM ${BASE_IMAGE}
+
+ARG LAB_VERSION=1
+LABEL org.linuxtutor.lab-version="${LAB_VERSION}" \
+      org.opencontainers.image.title="Linux Tutor laboratory" \
+      org.opencontainers.image.description="Isolated practice system for the Linux Tutor application"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    container=podman \
+    LANG=C.UTF-8
+
+# The Ubuntu container image is "minimised" and strips manual pages.
+# Students must be able to use man/info, so restore documentation first.
+RUN rm -f /etc/dpkg/dpkg.cfg.d/excludes \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv systemd-resolved- dbus libpam-systemd \
+      sudo bash-completion man-db manpages manpages-dev info less nano vim-tiny \
+      file procps psmisc iproute2 iputils-ping net-tools bind9-dnsutils netcat-openbsd \
+      curl wget ca-certificates openssh-server openssh-client cron logrotate \
+      acl attr libcap2-bin e2fsprogs dosfstools fdisk parted gdisk lvm2 xfsprogs \
+      nftables iptables tar gzip bzip2 xz-utils zip unzip rsync bc gawk sed grep \
+      findutils plocate util-linux lsof strace time kmod lsb-release sysstat \
+      dpkg-dev apt-utils at quota tzdata locales fuse2fs fuse3 tmux \
+ && apt-get install -y --reinstall --no-install-recommends \
+      coreutils findutils grep sed tar bash util-linux procps passwd login \
+      gzip mount hostname dpkg apt debianutils base-files \
+ && { mandb -q || true; }
+
+# A small offline package repository so package-management lessons work
+# with networking disabled (the default).  These packages are deliberately
+# NOT pre-installed: students install and remove them themselves.
+RUN mkdir -p /opt/lab-repo && chown _apt:root /opt/lab-repo && cd /opt/lab-repo \
+ && apt-get download tree sl figlet hello jq libjq1 libonig5 ncdu cowsay htop libnl-3-200 libnl-genl-3-200 \
+ && chown -R root:root /opt/lab-repo \
+ && dpkg-scanpackages . /dev/null > Packages 2>/dev/null \
+ && gzip -k Packages \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY files/ /
+
+RUN set -e \
+ # --- the student account -------------------------------------------------
+ && { userdel -r ubuntu 2>/dev/null || true; } \
+ && useradd -m -s /bin/bash -c "Linux Tutor Student" -G sudo,adm,systemd-journal student \
+ && echo 'student:student' | chpasswd \
+ && echo 'root:root' | chpasswd \
+ && chmod 0440 /etc/sudoers.d/student \
+ # --- system identity -----------------------------------------------------
+ && echo linuxlab > /etc/hostname \
+ && locale-gen en_US.UTF-8 >/dev/null \
+ # --- systemd: drop units that make no sense inside a container -----------
+ && systemctl mask getty.target console-getty.service systemd-udevd.service \
+        systemd-udev-trigger.service systemd-modules-load.service \
+        sys-kernel-debug.mount sys-kernel-tracing.mount systemd-remount-fs.service \
+        systemd-firstboot.service apt-daily.timer apt-daily-upgrade.timer \
+        motd-news.timer e2scrub_reap.service e2scrub_all.timer \
+        systemd-logind.service \
+ # sshd is installed but disabled: starting it is a lesson exercise.
+ && { systemctl disable ssh.service ssh.socket 2>/dev/null || true; } \
+ && systemctl enable cron.service atd.service sysstat.service tutor-procsys.service \
+ && mkdir -p /run/sshd \
+ # --- tutor integration ---------------------------------------------------
+ && mkdir -p /var/lib/tutor && chmod 1777 /var/lib/tutor \
+ && touch /var/lib/tutor/cmdlog && chmod 0666 /var/lib/tutor/cmdlog \
+ && chmod 0755 /usr/local/sbin/lab-netmode /usr/local/bin/lab-info \
+ # Offline mode by default: only the local repository is configured.
+ && /usr/local/sbin/lab-netmode offline --no-update \
+ && apt-get update -o Acquire::Languages=none \
+ && { updatedb 2>/dev/null || true; } \
+ && cp -a /etc/skel/. /home/student/ && chown -R student:student /home/student
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

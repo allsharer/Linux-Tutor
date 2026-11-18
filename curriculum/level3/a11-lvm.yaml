@@ -1,0 +1,189 @@
+id: a11-lvm
+level: advanced
+module: storage
+title: LVM and storage administration
+duration: 45
+objectives:
+  - Explain physical volumes, volume groups and logical volumes
+  - Create, extend and reduce LVM storage safely
+  - Read pvs, vgs and lvs output and plan capacity
+  - Understand LVM snapshots and RAID basics
+
+sections:
+  - title: Why LVM?
+    content: |
+      Partitions are rigid: growing one means moving its neighbours.  The **Logical Volume
+      Manager** adds a flexible layer:
+
+      ```
+       /dev/sdb1   /dev/sdc1          <- PV  physical volumes (disks or partitions)
+           \          /
+            [ vg_data ]               <- VG  volume group: a pool of extents (default 4 MiB)
+           /     |     \
+       lv_www  lv_db  (free)          <- LV  logical volumes: used like partitions
+         |       |
+       ext4     xfs                   <- filesystems
+      ```
+
+      LVs can be resized, moved between disks and snapshotted while in use.  Ubuntu's
+      server installer offers LVM by default.  LV device paths: `/dev/vg_data/lv_www`
+      (= `/dev/mapper/vg_data-lv_www`).
+  - title: Building and growing
+    content: |
+      ```
+      sudo pvcreate /dev/sdb1 /dev/sdc1
+      sudo vgcreate vg_data /dev/sdb1 /dev/sdc1
+      sudo lvcreate -n lv_www -L 20G vg_data
+      sudo lvcreate -n lv_db -l 50%FREE vg_data
+      sudo mkfs.ext4 /dev/vg_data/lv_www
+
+      # later: add a disk and grow lv_www and its filesystem in one step
+      sudo pvcreate /dev/sdd1
+      sudo vgextend vg_data /dev/sdd1
+      sudo lvextend -r -L +10G /dev/vg_data/lv_www     # -r also resizes the filesystem
+      ```
+
+      Inspect with `pvs`, `vgs`, `lvs` (summaries) or `pvdisplay`, `vgdisplay`, `lvdisplay`.
+  - title: Shrinking, snapshots and moving data
+    content: |
+      * **Shrinking** is risky: ext4 can shrink (unmounted) with `lvreduce -r -L 15G ...`;
+        xfs cannot shrink at all.  Back up first.
+      * **Snapshots** freeze an LV's state for backups:
+        `lvcreate -s -n www_snap -L 2G /dev/vg_data/lv_www` - only changed blocks use the
+        snapshot's space; if it fills up, the snapshot becomes invalid.
+      * **pvmove /dev/sdb1** migrates all extents off a disk (e.g. before replacing it),
+        then `vgreduce vg_data /dev/sdb1` removes it from the group.
+      * LVM can also mirror (`--type raid1`); many admins use **mdadm** software RAID below LVM.
+
+      :::note
+      LVM needs the kernel's device-mapper and real block devices, which an isolated
+      container may not use.  In this lesson you therefore *plan* LVM work and read real
+      tool output; the practical skills of partitioning and filesystems were exercised in
+      the previous lesson.  (A future virtual-machine laboratory backend can run the
+      commands for real.)
+      :::
+
+exercises:
+  - id: read-vgs
+    title: How much space is free?
+    instructions: |
+      **~/lvm-report.txt** contains the output of `vgs` and `lvs` from a production server.
+      How many **GiB are free** in volume group **vg_srv**?  Type the number only.
+    answer_prompt: "Free GiB in vg_srv:"
+    setup: |
+      cat > {home}/lvm-report.txt <<'EOF'
+      $ sudo vgs
+        VG        #PV #LV #SN Attr   VSize    VFree
+        vg_root     1   2   0 wz--n-  <59.00g      0
+        vg_srv      2   3   0 wz--n- <399.99g  <72.00g
+      $ sudo lvs
+        LV      VG      Attr       LSize   Pool Origin Data%
+        root    vg_root -wi-ao---- <55.00g
+        swap    vg_root -wi-ao----   4.00g
+        www     vg_srv  -wi-ao---- 120.00g
+        db      vg_srv  -wi-ao---- 200.00g
+        backup  vg_srv  -wi-a-----   8.00g
+      EOF
+      chown student: {home}/lvm-report.txt
+    reference: grep vg_srv ~/lvm-report.txt
+    test_answer: "72"
+    checks:
+      - {type: answer, regex: '<?\s*72(\.0+)?\s*(g|G|GiB)?', fail: "Look at the VFree column of vg_srv in the vgs output."}
+    hints:
+      - The vgs output has a column for free space.
+      - VFree for vg_srv.
+      - grep vg_srv ~/lvm-report.txt
+      - "VFree is <72.00g - just under 72 GiB (400 - 120 - 200 - 8 = 72)."
+  - id: plan-extend
+    title: Plan a resize
+    instructions: |
+      The **www** volume in **vg_srv** (see ~/lvm-report.txt) must grow by **50 GiB**, and
+      its ext4 filesystem with it, online.  Write the **single command** that does this into
+      **~/grow-www.sh** (it will be reviewed by a colleague before running on the server).
+    setup: |
+      rm -f {home}/grow-www.sh
+    reference: echo 'lvextend -r -L +50G /dev/vg_srv/www' > ~/grow-www.sh
+    alternatives: ["echo 'sudo lvextend --resizefs --size +50G vg_srv/www' > ~/grow-www.sh", "echo 'lvresize -r -L +50G /dev/mapper/vg_srv-www' > ~/grow-www.sh"]
+    wrong:
+      - {run: "echo 'lvextend -L 50G /dev/vg_srv/www' > ~/grow-www.sh", expect: partial}
+    checks:
+      - type: file_contains
+        path: ~/grow-www.sh
+        regex: '^\s*(sudo\s+)?lv(extend|resize)\b.*(/dev/vg_srv/www|vg_srv/www|/dev/mapper/vg_srv-www)'
+        fail: "The script does not contain an lvextend (or lvresize) command for the www volume of vg_srv."
+      - type: file_contains
+        path: ~/grow-www.sh
+        regex: '(-L\s*\+50[Gg]|--size[= ]\+50[Gg]|-L\s*\+51200[Mm])'
+        fail: "The size must be +50G (with the plus sign - without it, -L 50G means 'make it 50G in total', which would shrink the volume!)."
+      - type: file_contains
+        path: ~/grow-www.sh
+        regex: '(\s-r\b|--resizefs|\s-[a-zA-Z]*r[a-zA-Z]*\s)'
+        fail: "The filesystem is not resized together with the volume - add -r (--resizefs), or the extra space stays unused."
+    hints:
+      - lvextend grows a logical volume; one option grows the filesystem too.
+      - "-L +50G adds 50 GiB (the + matters!); -r resizes the filesystem."
+      - lvextend -r -L +50G /dev/vg_srv/www
+      - "Without the +, -L 50G would try to set the size to 50 GiB - a shrink from 120 GiB. -r runs resize2fs automatically."
+
+quiz:
+  questions:
+    - id: q-layers
+      type: mcq
+      topic: Why LVM?
+      prompt: What is the correct order of LVM layers from disk to filesystem?
+      options: ["LV -> VG -> PV", "PV -> VG -> LV", "VG -> PV -> LV", "PV -> LV -> VG"]
+      answer: 1
+    - id: q-vgextend
+      type: mcq
+      topic: Building and growing
+      prompt: After pvcreate on a new disk, which command adds it to vg_data?
+      options: [lvextend vg_data /dev/sdd1, vgextend vg_data /dev/sdd1, vgcreate vg_data /dev/sdd1, pvmove /dev/sdd1]
+      answer: 1
+    - id: q-plus
+      type: troubleshoot
+      topic: Building and growing
+      prompt: "An admin meant to grow a 100G LV by 20G but typed `lvextend -L 20G`.  What happens?"
+      options:
+        - It grows by 20G
+        - lvextend refuses, because the new size (20G) is smaller than the current size
+        - It shrinks the LV to 20G
+        - It creates a new LV
+      answer: 1
+    - id: q-xfs
+      type: truefalse
+      topic: Shrinking, snapshots and moving data
+      prompt: An LV containing an xfs filesystem can be shrunk with lvreduce -r.
+      answer: false
+    - id: q-snapshot
+      type: mcq
+      topic: Shrinking, snapshots and moving data
+      prompt: What happens when an LVM snapshot's allocated space fills up?
+      options: [It grows automatically, The snapshot becomes invalid, The origin volume stops, Nothing]
+      answer: 1
+    - id: q-mapper
+      type: short
+      topic: Why LVM?
+      prompt: "Give the /dev/mapper path of LV lv_home in VG vg0."
+      answer: [/dev/mapper/vg0-lv_home]
+    - id: q-practical
+      type: practical
+      title: Replace a disk - the plan
+      topic: Shrinking, snapshots and moving data
+      prompt: |
+        Disk **/dev/sdb1** in **vg_srv** reports errors.  A new disk, **/dev/sde1**, has been
+        installed.  Write the four commands, **in order**, that move all data to the new disk
+        and remove the old one from the volume group, into **~/replace-disk.sh**
+        (one command per line): `pvcreate`, `vgextend`, `pvmove`, `vgreduce`.
+      setup: rm -f {home}/replace-disk.sh
+      reference: printf 'pvcreate /dev/sde1\nvgextend vg_srv /dev/sde1\npvmove /dev/sdb1\nvgreduce vg_srv /dev/sdb1\n' > ~/replace-disk.sh
+      checks:
+        - type: command
+          run: "grep -Eo '^\\s*(sudo\\s+)?(pvcreate|vgextend|pvmove|vgreduce)' /home/student/replace-disk.sh | awk '{print $NF}' | tr '\\n' ' '"
+          stdout_equals: "pvcreate vgextend pvmove vgreduce"
+          fail: "The four commands must appear in the order pvcreate, vgextend, pvmove, vgreduce."
+        - {type: file_contains, path: ~/replace-disk.sh, regex: ['pvcreate\s+/dev/sde1', 'vgextend\s+vg_srv\s+/dev/sde1', 'pvmove\s+/dev/sdb1', 'vgreduce\s+vg_srv\s+/dev/sdb1']}
+      hints:
+        - Prepare the new disk, add it, move the data off the old one, remove the old one.
+        - "pvcreate NEW; vgextend VG NEW; pvmove OLD; vgreduce VG OLD"
+        - "pvcreate /dev/sde1 / vgextend vg_srv /dev/sde1 / pvmove /dev/sdb1 / vgreduce vg_srv /dev/sdb1"
+        - "pvmove can run while the volumes are in use; only after it finishes is it safe to vgreduce and pull the old disk."

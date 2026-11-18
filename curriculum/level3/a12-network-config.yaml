@@ -1,0 +1,218 @@
+id: a12-network-config
+level: advanced
+module: network
+title: Networking configuration and troubleshooting
+duration: 45
+objectives:
+  - Configure addresses, routes and interfaces at runtime with ip
+  - Write persistent configuration with netplan
+  - Build and test isolated networks with namespaces and veth pairs
+  - Troubleshoot connectivity layer by layer
+
+sections:
+  - title: Runtime configuration with ip
+    content: |
+      Changes made with `ip` take effect immediately and are **lost at reboot**:
+
+      ```
+      sudo ip addr add 192.168.10.5/24 dev eth1
+      sudo ip link set eth1 up
+      sudo ip route add 10.20.0.0/16 via 192.168.10.1
+      sudo ip route replace default via 192.168.10.1
+      ip route get 10.20.3.4          # which route/interface would be used?
+      ip neigh                        # ARP/neighbour cache
+      ```
+  - title: Persistent configuration - netplan
+    content: |
+      Ubuntu stores network configuration as YAML in **/etc/netplan/*.yaml**, which netplan
+      renders for systemd-networkd (servers) or NetworkManager (desktops):
+
+      ```yaml
+      network:
+        version: 2
+        ethernets:
+          eth0:
+            dhcp4: false
+            addresses: [192.168.10.5/24]
+            routes:
+              - to: default
+                via: 192.168.10.1
+            nameservers:
+              addresses: [192.168.10.2, 1.1.1.1]
+      ```
+
+      `sudo netplan try` applies the config and rolls back automatically after 120 s unless
+      you confirm - essential when working remotely.  `sudo netplan apply` applies it permanently.
+      Files must not be world-readable (`chmod 600`).  Other distributions use
+      NetworkManager (`nmcli`) or ifcfg files.
+  - title: Namespaces - networks in a box
+    content: |
+      A **network namespace** is an independent network stack.  With a **veth** pair (a
+      virtual cable) you can build test networks on one machine:
+
+      ```
+      sudo ip netns add branch
+      sudo ip link add veth-hq type veth peer name veth-br
+      sudo ip link set veth-br netns branch
+      sudo ip addr add 10.50.0.1/24 dev veth-hq && sudo ip link set veth-hq up
+      sudo ip netns exec branch ip addr add 10.50.0.2/24 dev veth-br
+      sudo ip netns exec branch ip link set veth-br up
+      sudo ip netns exec branch ping 10.50.0.1
+      ```
+
+      :::note
+      In the laboratory `ip netns exec` cannot remount /sys, so use the equivalent
+      `sudo nsenter --net=/run/netns/branch COMMAND`.
+      :::
+  - title: Layer-by-layer troubleshooting
+    content: |
+      | Layer | Check |
+      |---|---|
+      | link | `ip -br link` - UP? cable/virtual peer present? |
+      | address | `ip -br addr` - right address and prefix? |
+      | route | `ip route`, `ip route get DEST` |
+      | neighbour | `ping` the gateway; `ip neigh` |
+      | name resolution | `getent hosts`, `resolvectl status`, `/etc/resolv.conf` |
+      | transport | `ss -tlnp` on the server; `nc -zv HOST PORT` from the client |
+      | firewall | `nft list ruleset` |
+      | application | logs, `curl -v` |
+
+exercises:
+  - id: veth-ns
+    title: Connect a branch office
+    instructions: |
+      Build a test network:
+
+      * a network namespace called **branch**;
+      * a veth pair **veth-hq** (stays in the main namespace) / **veth-br** (moved into branch);
+      * address **10.50.0.1/24** on veth-hq, **10.50.0.2/24** on veth-br, both interfaces **up**.
+
+      Success: from inside *branch*, `ping 10.50.0.1` works.
+    setup: |
+      ip netns del branch 2>/dev/null; ip link del veth-hq 2>/dev/null; true
+    cleanup: ip netns del branch 2>/dev/null; ip link del veth-hq 2>/dev/null; true
+    reference: |
+      sudo ip netns add branch
+      sudo ip link add veth-hq type veth peer name veth-br
+      sudo ip link set veth-br netns branch
+      sudo ip addr add 10.50.0.1/24 dev veth-hq
+      sudo ip link set veth-hq up
+      sudo nsenter --net=/run/netns/branch ip addr add 10.50.0.2/24 dev veth-br
+      sudo nsenter --net=/run/netns/branch ip link set veth-br up
+    checks:
+      - {type: command, run: "ip netns list", stdout_contains: branch, fail: "There is no namespace called branch."}
+      - {type: command, run: "ip -br addr show veth-hq", stdout_contains: 10.50.0.1/24}
+      - {type: command, run: "nsenter --net=/run/netns/branch ip -br addr show veth-br", stdout_contains: 10.50.0.2/24,
+         fail: "veth-br inside branch does not have 10.50.0.2/24."}
+      - {type: command, run: "nsenter --net=/run/netns/branch ping -c1 -W2 10.50.0.1 >/dev/null && echo ok", stdout_equals: ok,
+         fail: "branch cannot ping 10.50.0.1 - are both ends up?"}
+    hints:
+      - Create the namespace, the pair, move one end, then address both ends and bring them up.
+      - "ip link set veth-br netns branch moves it; nsenter --net=/run/netns/branch runs commands inside."
+      - "sudo ip netns add branch; sudo ip link add veth-hq type veth peer name veth-br; sudo ip link set veth-br netns branch"
+      - "Then address and enable both sides as in the lecture (use nsenter for the branch side). Test: sudo nsenter --net=/run/netns/branch ping -c1 10.50.0.1"
+  - id: netplan
+    title: A static netplan configuration
+    instructions: |
+      Write **/etc/netplan/60-static.yaml** configuring interface **eth1** with:
+
+      * DHCP **off**;
+      * address **192.168.20.10/24**;
+      * default route via **192.168.20.1**;
+      * DNS servers **192.168.20.2** and **9.9.9.9**.
+
+      Make the file readable only by root (mode 600).  (netplan itself is not installed in
+      the lab, so the tutor checks the file.)
+    setup: rm -f /etc/netplan/60-static.yaml; mkdir -p /etc/netplan
+    reference: |
+      cat <<'EOF' | sudo tee /etc/netplan/60-static.yaml
+      network:
+        version: 2
+        ethernets:
+          eth1:
+            dhcp4: false
+            addresses: [192.168.20.10/24]
+            routes:
+              - to: default
+                via: 192.168.20.1
+            nameservers:
+              addresses: [192.168.20.2, 9.9.9.9]
+      EOF
+      sudo chmod 600 /etc/netplan/60-static.yaml
+    checks:
+      - {type: file_contains, path: /etc/netplan/60-static.yaml, regex: ['^network:', '^\s+version:\s*2', '^\s+ethernets:', '^\s+eth1:']}
+      - {type: file_contains, path: /etc/netplan/60-static.yaml, regex: '^\s+dhcp4:\s*(false|no)', fail: "dhcp4 is not set to false."}
+      - {type: file_contains, path: /etc/netplan/60-static.yaml, regex: '192\.168\.20\.10/24', fail: "The address 192.168.20.10/24 is missing."}
+      - {type: file_contains, path: /etc/netplan/60-static.yaml, regex: '(via:\s*192\.168\.20\.1\b|gateway4:\s*192\.168\.20\.1\b)', fail: "The default route via 192.168.20.1 is missing."}
+      - {type: file_contains, path: /etc/netplan/60-static.yaml, regex: ['192\.168\.20\.2\b', '9\.9\.9\.9'], fail: "The DNS servers are missing."}
+      - {type: mode, path: /etc/netplan/60-static.yaml, mode: "600"}
+      - {type: command, run: "grep -P '\\t' /etc/netplan/60-static.yaml | wc -l", stdout_equals: "0", fail: "The file contains TAB characters - YAML requires spaces for indentation."}
+    hints:
+      - Follow the structure network -> ethernets -> eth1 shown in the lecture.
+      - "Keys: dhcp4, addresses, routes (to: default, via), nameservers.addresses. Indent with spaces."
+      - "sudo nano /etc/netplan/60-static.yaml   then   sudo chmod 600 /etc/netplan/60-static.yaml"
+      - "On a real server you would then run sudo netplan try, and confirm within 120 seconds."
+
+quiz:
+  questions:
+    - id: q-persist
+      type: truefalse
+      topic: Runtime configuration with ip
+      prompt: An address added with ip addr add survives a reboot.
+      answer: false
+    - id: q-try
+      type: mcq
+      topic: Persistent configuration - netplan
+      prompt: Why is `netplan try` safer than `netplan apply` on a remote server?
+      options: [It is faster, It rolls back automatically unless you confirm - so a mistake cannot lock you out, It validates DNS, It only prints the config]
+      answer: 1
+    - id: q-routeget
+      type: short
+      topic: Runtime configuration with ip
+      prompt: Which ip command shows which route would be used to reach 10.1.2.3?
+      answer: ["ip route get 10.1.2.3", "ip r g 10.1.2.3", "ip ro get 10.1.2.3"]
+    - id: q-veth
+      type: mcq
+      topic: Namespaces - networks in a box
+      prompt: What is a veth pair?
+      options: [Two physical NICs bonded together, A virtual cable - packets entering one end leave the other, A VLAN tag, A firewall zone]
+      answer: 1
+    - id: q-layers
+      type: troubleshoot
+      topic: Layer-by-layer troubleshooting
+      prompt: |
+        A host can ping its gateway and `getent hosts db.internal` returns 10.0.5.9, but
+        `nc -zv 10.0.5.9 5432` times out while other hosts can connect.  Most likely?
+      options: [DNS failure, A firewall rule or routing problem between this host and 10.0.5.9, The cable is unplugged, The local IP address is wrong]
+      answer: 1
+    - id: q-yaml
+      type: interpret
+      topic: Persistent configuration - netplan
+      prompt: Which line is wrong in this netplan snippet?
+      output: |
+        network:
+          version: 2
+          ethernets:
+            eth0:
+              dhcp4: true
+              addresses: 10.0.0.5/24
+      options: [version must be 3, "addresses must be a list: [10.0.0.5/24]", dhcp4 must be yes, eth0 must be quoted]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Add a static route
+      topic: Runtime configuration with ip
+      prompt: |
+        Interface **lab1** (address 172.30.0.1/24, up) has been created for you.  Add a
+        **route** to the network **10.99.0.0/16** via the gateway **172.30.0.254**.
+      setup: |
+        ip link del lab1 2>/dev/null; ip link add lab1 type dummy; ip addr add 172.30.0.1/24 dev lab1; ip link set lab1 up
+      cleanup: ip link del lab1 2>/dev/null || true
+      reference: sudo ip route add 10.99.0.0/16 via 172.30.0.254
+      checks:
+        - {type: command, run: "ip route show 10.99.0.0/16", stdout_regex: 'via 172\.30\.0\.254 dev lab1'}
+      hints:
+        - ip route add NETWORK via GATEWAY
+        - The gateway must be reachable on a connected network (172.30.0.0/24 on lab1).
+        - sudo ip route add 10.99.0.0/16 via 172.30.0.254
+        - "ip route get 10.99.1.1 now shows 'via 172.30.0.254 dev lab1'."

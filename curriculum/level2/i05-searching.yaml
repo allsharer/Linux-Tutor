@@ -1,0 +1,210 @@
+id: i05-searching
+level: intermediate
+module: files
+title: Searching files using find, locate and grep
+duration: 35
+objectives:
+  - Find files by name, type, size, time, owner and permissions with find
+  - Act on found files with -exec and xargs
+  - Use locate and understand its database
+  - Search file contents recursively with grep
+
+sections:
+  - title: find - search the tree
+    content: |
+      `find` walks a directory tree and tests every entry:
+
+      ```
+      find START... [tests] [actions]
+      ```
+
+      | Test | Matches |
+      |---|---|
+      | `-name '*.log'` | name (wildcards; quote them!) - `-iname` ignores case |
+      | `-type f` / `d` / `l` | regular file / directory / symlink |
+      | `-size +100M` | larger than 100 MiB (`-size -1k`: smaller than 1 KiB) |
+      | `-mtime -7` | modified less than 7 days ago (`+30`: more than 30) |
+      | `-mmin -60` | modified in the last 60 minutes |
+      | `-user alice`, `-group staff` | owner / group |
+      | `-perm -o+w` | at least these permission bits |
+      | `-empty` | empty files or directories |
+
+      Tests are combined with AND by default; use `-o` for OR, `!` for NOT, and
+      `\( \)` for grouping.  `-maxdepth N` limits the depth.
+    examples:
+      - command: find /etc -name "*.conf" -type f 2>/dev/null | head
+        explanation: Configuration files under /etc.
+      - command: find /var/log -mmin -60 -type f 2>/dev/null
+        explanation: Logs changed during the last hour.
+      - command: find ~ -empty
+        explanation: Empty files and directories in your home.
+  - title: Acting on results
+    content: |
+      By default find prints the paths.  To *do* something with them:
+
+      ```
+      find /tmp -name '*.tmp' -mtime +7 -delete              # delete
+      find . -name '*.sh' -exec chmod +x {} \;              # one command per file
+      find . -name '*.sh' -exec chmod +x {} +               # many files per command (faster)
+      find . -name '*.log' -print0 | xargs -0 gzip          # via xargs, safe with spaces
+      ```
+
+      :::warning
+      Run the find **without** -delete or -exec first and check the list.  Order
+      matters: `-delete` before `-name` would delete everything!
+      :::
+  - title: locate - search an index
+    content: |
+      `locate NAME` searches a pre-built **database** of file names - instantly, even
+      on huge systems.  The database is updated daily by a timer, or manually with
+      `sudo updatedb`.  Consequences:
+
+      * very fast;
+      * may miss files created since the last update, and may list deleted ones.
+
+      ```
+      $ locate sshd_config
+      /etc/ssh/sshd_config
+      /usr/share/man/man5/sshd_config.5.gz
+      ```
+  - title: grep - search contents
+    content: |
+      find searches **names and metadata**; grep searches **contents**:
+
+      ```
+      grep -rn "Listen" /etc/apache2/          # recursive, with line numbers
+      grep -rl "password" ~/projects           # only file names (-l)
+      grep -r --include='*.conf' "port" /etc   # only some files
+      grep -E "error|fail" app.log             # extended regex, alternatives
+      ```
+
+      Combine them: `find /etc -name '*.conf' -exec grep -l "8080" {} +`.
+
+exercises:
+  - id: big-files
+    title: Find the space hogs
+    instructions: |
+      Somewhere under **/srv/data** there are files larger than **5 MB**.  Create
+      **~/big.txt** listing their full paths, one per line (any order).
+    setup: |
+      rm -rf /srv/data; mkdir -p /srv/data/{a,b/c,d}
+      fallocate -l 6M /srv/data/a/video.mp4; fallocate -l 12M /srv/data/b/c/backup.tar
+      fallocate -l 1M /srv/data/d/photo.jpg; fallocate -l 4M /srv/data/b/notes.pdf; fallocate -l 9M /srv/data/d/dump.sql
+      rm -f {home}/big.txt
+    reference: find /srv/data -type f -size +5M > ~/big.txt
+    checks:
+      - type: command
+        run: "diff <(sort /home/student/big.txt) <(printf '/srv/data/a/video.mp4\\n/srv/data/b/c/backup.tar\\n/srv/data/d/dump.sql\\n' | sort)"
+        exit_code: 0
+        fail: ~/big.txt should list exactly the three files larger than 5 MB.
+    hints:
+      - find has a test for file size.
+      - "-size +5M means larger than 5 MiB; -type f restricts to regular files."
+      - find /srv/data -type f -size +5M > ~/big.txt
+      - "find prints video.mp4, backup.tar and dump.sql; > saves the list."
+  - id: old-logs
+    title: Clean up old logs
+    instructions: |
+      **~/logs** contains log files of different ages.  **Delete** every `*.log` file
+      that was modified **more than 30 days ago**.  Keep recent logs and everything that
+      is not a .log file.
+    setup: |
+      rm -rf {home}/logs; mkdir -p {home}/logs/old; cd {home}/logs
+      for f in jan feb mar; do touch -d '90 days ago' $f.log; done
+      touch -d '45 days ago' old/archive.log; touch -d '45 days ago' notes.txt
+      touch -d '3 days ago' current.log; touch today.log
+      chown -R student: {home}/logs
+    reference: find ~/logs -name '*.log' -mtime +30 -delete
+    alternatives: ["find ~/logs -name '*.log' -mtime +30 -exec rm {} +"]
+    checks:
+      - {type: not_exists, path: ~/logs/jan.log}
+      - {type: not_exists, path: ~/logs/feb.log}
+      - {type: not_exists, path: ~/logs/mar.log}
+      - {type: not_exists, path: ~/logs/old/archive.log}
+    constraints:
+      - {type: file_exists, path: ~/logs/current.log, fail: current.log was deleted although it is recent.}
+      - {type: file_exists, path: ~/logs/today.log, fail: today.log was deleted although it is recent.}
+      - {type: file_exists, path: ~/logs/notes.txt, fail: notes.txt was deleted although it is not a .log file.}
+    hints:
+      - find can test both the name and the age, then delete.
+      - "-name '*.log' -mtime +30 selects them; add -delete (after checking the list)."
+      - find ~/logs -name '*.log' -mtime +30
+      - "find ~/logs -name '*.log' -mtime +30 -delete removes the four old logs including old/archive.log."
+  - id: grep-config
+    title: Which file sets the port?
+    instructions: |
+      One of the files under **/etc/tutorapp/** sets `port=8443`.  Type the **full path**
+      of that file.
+    answer_prompt: "File:"
+    setup: |
+      rm -rf /etc/tutorapp; mkdir -p /etc/tutorapp/conf.d /etc/tutorapp/sites
+      echo "port=80" > /etc/tutorapp/main.conf; echo "user=www" > /etc/tutorapp/conf.d/user.conf
+      echo "timeout=30" > /etc/tutorapp/conf.d/net.conf; printf 'name=secure\nport=8443\n' > /etc/tutorapp/sites/secure.conf
+    reference: grep -rl 'port=8443' /etc/tutorapp
+    test_answer: /etc/tutorapp/sites/secure.conf
+    checks:
+      - {type: answer, equals: /etc/tutorapp/sites/secure.conf}
+    hints:
+      - Search the contents of all files under the directory.
+      - grep -r searches recursively; -l prints only file names.
+      - grep -rl 'port=8443' /etc/tutorapp
+      - "grep -rl prints /etc/tutorapp/sites/secure.conf."
+
+quiz:
+  questions:
+    - id: q-quote
+      type: troubleshoot
+      topic: find - search the tree
+      prompt: |
+        `find . -name *.txt` gives "paths must precede expression" in a directory containing
+        several .txt files.  Why?
+      options:
+        - find cannot search for .txt files
+        - The shell expanded *.txt before find saw it; quote the pattern
+        - -name must come before the path
+        - You need sudo
+      answer: 1
+    - id: q-mtime
+      type: mcq
+      topic: find - search the tree
+      prompt: Which test selects files modified within the last 2 days?
+      options: [-mtime +2, -mtime -2, -mtime 2, -mmin 2]
+      answer: 1
+    - id: q-locate
+      type: truefalse
+      topic: locate - search an index
+      prompt: locate may not find a file created five minutes ago.
+      answer: true
+      explanation: It searches a database that is updated periodically (updatedb).
+    - id: q-exec
+      type: mcq
+      topic: Acting on results
+      prompt: Why is `-exec cmd {} +` usually faster than `-exec cmd {} \;`?
+      options: [It runs in parallel, It passes many files to each invocation of cmd, It skips errors, It uses locate]
+      answer: 1
+    - id: q-grep-l
+      type: short
+      topic: grep - search contents
+      prompt: Which grep option prints only the names of matching files?
+      answer: ["-l", "--files-with-matches"]
+    - id: q-practical
+      type: practical
+      title: World-writable files
+      topic: find - search the tree
+      prompt: |
+        Under **/srv/shared**, find every regular file that is **writable by others**, and
+        remove that permission (keep all other bits unchanged).
+      setup: |
+        rm -rf /srv/shared; mkdir -p /srv/shared/x /srv/shared/y; cd /srv/shared
+        touch a b x/c y/d y/e; chmod 666 a x/c; chmod 777 y/d; chmod 644 b y/e
+        chown -R student: /srv/shared
+      reference: find /srv/shared -type f -perm -o+w -exec chmod o-w {} +
+      checks:
+        - {type: command, run: "find /srv/shared -type f -perm -o+w | wc -l", stdout_equals: "0"}
+        - {type: mode, path: /srv/shared/y/d, mode: "775", fail: "y/d should keep its other bits (775)."}
+        - {type: mode, path: /srv/shared/a, mode: "664"}
+      hints:
+        - Select by permission bit, then change only that bit.
+        - "-perm -o+w finds files with the others-write bit; chmod o-w removes only that bit."
+        - find /srv/shared -type f -perm -o+w -exec chmod o-w {} +
+        - "Symbolic chmod o-w preserves the other bits, so 777 becomes 775 and 666 becomes 664."

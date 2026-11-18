@@ -1,0 +1,209 @@
+id: a19-automation
+level: advanced
+module: operations
+title: Automation and task scheduling
+duration: 45
+objectives:
+  - Schedule jobs with systemd timers and compare them with cron
+  - Write idempotent automation scripts
+  - Use locking to prevent overlapping runs
+  - Know when to move to configuration-management tools
+
+sections:
+  - title: systemd timers
+    content: |
+      A **timer** unit activates a **service** unit of the same name:
+
+      ```ini
+      # /etc/systemd/system/cleanup.service
+      [Unit]
+      Description=Remove old temporary files
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/cleanup.sh
+
+      # /etc/systemd/system/cleanup.timer
+      [Unit]
+      Description=Run cleanup daily
+      [Timer]
+      OnCalendar=*-*-* 03:15:00
+      Persistent=true          # catch up if the machine was off at 03:15
+      RandomizedDelaySec=10m   # spread load across many servers
+      [Install]
+      WantedBy=timers.target
+      ```
+
+      `sudo systemctl enable --now cleanup.timer`; `systemctl list-timers` shows the next
+      run.  Test calendar expressions: `systemd-analyze calendar "Mon..Fri 08:00"`.
+
+      Advantages over cron: logs in the journal, dependencies, resource limits, `Persistent=`,
+      and `systemctl start cleanup.service` to run it by hand.
+  - title: Idempotent scripts
+    content: |
+      An **idempotent** script can run many times and always leaves the same correct state -
+      essential for automation that may be retried:
+
+      ```bash
+      mkdir -p /srv/app                                  # not: mkdir /srv/app
+      id deploy &>/dev/null || useradd -r deploy         # create only if missing
+      grep -qxF "$line" "$file" || echo "$line" >> "$file"   # append only once
+      ln -sfn /srv/app/releases/42 /srv/app/current      # replace the link atomically
+      ```
+
+      Check-then-act, and prefer tools that *declare* a state over tools that perform an action.
+  - title: Locking and logging
+    content: |
+      If a job can run longer than its interval, two copies may overlap.  `flock` prevents it:
+
+      ```
+      flock -n /run/lock/backup.lock /usr/local/bin/backup.sh || echo "already running"
+      ```
+
+      Inside scripts: `exec 9>/run/lock/myjob.lock; flock -n 9 || exit 0`.  Log with `logger
+      -t myjob` so results appear in the journal, and exit non-zero on failure so systemd
+      marks the run as failed.
+  - title: Beyond scripts
+    content: |
+      For many machines, configuration-management tools describe the desired state and
+      apply it everywhere: **Ansible** (agentless, SSH + YAML playbooks), Puppet, Salt,
+      Chef; cloud-init for first boot; Terraform for infrastructure.  The principles you
+      practised - idempotence, declarative state, logging - carry over directly.
+
+exercises:
+  - id: timer
+    title: A daily timer
+    instructions: |
+      **/usr/local/bin/tidy-tmp** cleans temporary files.  Create **tidy-tmp.service**
+      (Type=oneshot) and **tidy-tmp.timer** that runs it **every day at 04:30**, catching up
+      missed runs (**Persistent=true**).  **Enable and start the timer.**
+    setup: |
+      printf '#!/bin/bash\nfind /tmp -type f -name "*.tmp" -mtime +7 -delete\nlogger -t tidy-tmp "tidy-tmp ran"\n' > /usr/local/bin/tidy-tmp
+      chmod 755 /usr/local/bin/tidy-tmp
+      systemctl disable --now tidy-tmp.timer 2>/dev/null; rm -f /etc/systemd/system/tidy-tmp.{service,timer}; systemctl daemon-reload
+    cleanup: systemctl disable --now tidy-tmp.timer 2>/dev/null || true
+    reference: |
+      printf '[Unit]\nDescription=Tidy /tmp\n[Service]\nType=oneshot\nExecStart=/usr/local/bin/tidy-tmp\n' | sudo tee /etc/systemd/system/tidy-tmp.service
+      printf '[Unit]\nDescription=Daily tidy\n[Timer]\nOnCalendar=*-*-* 04:30:00\nPersistent=true\n[Install]\nWantedBy=timers.target\n' | sudo tee /etc/systemd/system/tidy-tmp.timer
+      sudo systemctl daemon-reload
+      sudo systemctl enable --now tidy-tmp.timer
+    alternatives:
+      - |
+        printf '[Service]\nType=oneshot\nExecStart=/usr/local/bin/tidy-tmp\n' | sudo tee /etc/systemd/system/tidy-tmp.service
+        printf '[Timer]\nOnCalendar=04:30\nPersistent=yes\n[Install]\nWantedBy=timers.target\n' | sudo tee /etc/systemd/system/tidy-tmp.timer
+        sudo systemctl daemon-reload && sudo systemctl enable --now tidy-tmp.timer
+    checks:
+      - {type: service_enabled, name: tidy-tmp.timer}
+      - {type: service_active, name: tidy-tmp.timer}
+      - {type: command, run: "systemctl show -p TimersCalendar --value tidy-tmp.timer", stdout_regex: 'OnCalendar=\*-\*-\* 04:30:00',
+         fail: "The timer does not fire daily at 04:30."}
+      - {type: command, run: "systemctl show -p Persistent --value tidy-tmp.timer", stdout_equals: "yes"}
+      - {type: command, run: "systemctl show -p Type --value tidy-tmp.service", stdout_equals: oneshot}
+      - {type: command, run: "systemctl start tidy-tmp.service && journalctl -t tidy-tmp -n 1 -o cat --no-pager", stdout_contains: tidy-tmp ran,
+         fail: "Starting tidy-tmp.service by hand does not run the script."}
+    hints:
+      - Two unit files with the same base name - a .service and a .timer.
+      - "[Timer] OnCalendar=*-*-* 04:30:00 and Persistent=true; [Install] WantedBy=timers.target."
+      - "Create both files in /etc/systemd/system, then: sudo systemctl daemon-reload && sudo systemctl enable --now tidy-tmp.timer"
+      - "systemctl list-timers tidy-tmp shows the next run; systemd-analyze calendar '*-*-* 04:30:00' checks the expression."
+  - id: idempotent
+    title: Make it idempotent
+    instructions: |
+      Write an executable script **~/setup-app.sh** that, **when run with sudo**, ensures:
+
+      * the system user **appsvc** exists;
+      * the directory **/srv/appdata** exists, owned by appsvc;
+      * the line `APP_ENV=production` is present **exactly once** in **/etc/appsvc.env**.
+
+      Running it **several times** must succeed every time and leave exactly the same state
+      (no duplicate lines, no errors).  The tutor runs it three times.
+    setup: |
+      userdel appsvc 2>/dev/null; rm -rf /srv/appdata /etc/appsvc.env {home}/setup-app.sh
+    reference: |
+      cat > ~/setup-app.sh <<'EOF'
+      #!/bin/bash
+      set -euo pipefail
+      id appsvc &>/dev/null || useradd -r -s /usr/sbin/nologin appsvc
+      mkdir -p /srv/appdata
+      chown appsvc: /srv/appdata
+      touch /etc/appsvc.env
+      grep -qxF 'APP_ENV=production' /etc/appsvc.env || echo 'APP_ENV=production' >> /etc/appsvc.env
+      EOF
+      chmod +x ~/setup-app.sh
+    wrong:
+      - run: |
+          printf '#!/bin/bash\nuseradd -r appsvc\nmkdir /srv/appdata\nchown appsvc /srv/appdata\necho APP_ENV=production >> /etc/appsvc.env\n' > ~/setup-app.sh; chmod +x ~/setup-app.sh
+        expect: partial
+    checks:
+      - {type: script, path: ~/setup-app.sh, user: root, exit_code: 0, fail: "The first run failed."}
+      - {type: script, path: ~/setup-app.sh, user: root, exit_code: 0, fail: "The second run failed - the script is not idempotent (does it create things that already exist?)."}
+      - {type: script, path: ~/setup-app.sh, user: root, exit_code: 0, fail: "The third run failed."}
+      - {type: user_exists, name: appsvc}
+      - {type: owner, path: /srv/appdata, user: appsvc}
+      - {type: command, run: "grep -cxF 'APP_ENV=production' /etc/appsvc.env", stdout_equals: "1",
+         fail: "APP_ENV=production does not appear exactly once after three runs."}
+    hints:
+      - Every action must first check whether it is already done.
+      - "id USER || useradd ...; mkdir -p; grep -qxF LINE FILE || echo LINE >> FILE"
+      - "id appsvc &>/dev/null || useradd -r appsvc"
+      - "mkdir -p never fails on an existing directory; grep -qxF matches the whole line exactly, so the echo only runs when the line is missing."
+
+quiz:
+  questions:
+    - id: q-persistent
+      type: mcq
+      topic: systemd timers
+      prompt: What does Persistent=true do in a timer?
+      options: [Keeps the service running, Runs a missed activation at the next boot if the system was off, Repeats the job forever, Stores logs]
+      answer: 1
+    - id: q-calendar
+      type: short
+      topic: systemd timers
+      prompt: Which command validates and explains an OnCalendar expression? (command and sub-command)
+      answer: ["systemd-analyze calendar"]
+    - id: q-idem
+      type: mcq
+      topic: Idempotent scripts
+      prompt: Which command is idempotent?
+      options: ['echo "x" >> file', "mkdir -p /srv/data", "useradd bob", "mkdir /srv/data"]
+      answer: 1
+    - id: q-flock
+      type: mcq
+      topic: Locking and logging
+      prompt: A backup job runs every 15 minutes but sometimes takes 20.  How do you stop overlapping runs?
+      options: [Use nice, Wrap it in flock -n with a lock file, Run it as root, Use nohup]
+      answer: 1
+    - id: q-wanted
+      type: truefalse
+      topic: systemd timers
+      prompt: To start a timer at boot it must be enabled, and its [Install] section usually says WantedBy=timers.target.
+      answer: true
+    - id: q-ansible
+      type: mcq
+      topic: Beyond scripts
+      prompt: Which tool applies declarative configuration to many servers over SSH without an agent?
+      options: [cron, Ansible, rsync, systemd-run]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Weekday mornings
+      topic: systemd timers
+      prompt: |
+        Create **report.service** (oneshot, running `/usr/bin/logger -t report "report generated"`)
+        and **report.timer** firing at **08:00 on weekdays (Monday to Friday)**.  Enable and
+        start the timer.
+      setup: |
+        systemctl disable --now report.timer 2>/dev/null; rm -f /etc/systemd/system/report.{service,timer}; systemctl daemon-reload
+      cleanup: systemctl disable --now report.timer 2>/dev/null || true
+      reference: |
+        printf '[Service]\nType=oneshot\nExecStart=/usr/bin/logger -t report "report generated"\n' | sudo tee /etc/systemd/system/report.service
+        printf '[Timer]\nOnCalendar=Mon..Fri 08:00\n[Install]\nWantedBy=timers.target\n' | sudo tee /etc/systemd/system/report.timer
+        sudo systemctl daemon-reload && sudo systemctl enable --now report.timer
+      checks:
+        - {type: service_active, name: report.timer}
+        - {type: service_enabled, name: report.timer}
+        - {type: command, run: "systemctl show -p TimersCalendar --value report.timer", stdout_regex: 'Mon\.\.Fri \*-\*-\* 08:00:00'}
+      hints:
+        - "OnCalendar accepts weekday ranges."
+        - "OnCalendar=Mon..Fri 08:00"
+        - "Write both units, daemon-reload, enable --now report.timer."
+        - "systemctl list-timers report.timer shows the next weekday 08:00."

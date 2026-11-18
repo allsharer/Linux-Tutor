@@ -1,0 +1,205 @@
+id: i02-ownership-permissions
+level: intermediate
+module: files
+title: File ownership and permissions
+duration: 30
+objectives:
+  - Explain how Linux decides whether an access is allowed
+  - Understand the default permissions of new files and the umask
+  - Understand the special bits setuid, setgid and sticky
+  - Diagnose "Permission denied" errors systematically
+
+sections:
+  - title: How an access is checked
+    content: |
+      Each file has an **owner** (a UID), a **group** (a GID) and a **mode**.  When a
+      process tries to open a file, the kernel checks, in order:
+
+      1. Is the process running as **root**?  Then (almost) everything is allowed.
+      2. Is the process's user the file's **owner**?  Then use the **user** bits - and
+         *only* those.
+      3. Is the process in the file's **group** (primary or supplementary)?  Use the
+         **group** bits.
+      4. Otherwise use the **other** bits.
+
+      ```
+      ----r--r--  1 student student  notes.txt
+      ```
+
+      Here even the owner cannot read notes.txt, although "others" can - rule 2 stops
+      at the first matching category.
+
+      To open `/home/alice/docs/plan.txt`, you also need **x** on every directory in
+      the path: `/`, `/home`, `/home/alice`, `/home/alice/docs`.
+  - title: Default permissions and umask
+    content: |
+      New files are not created with random permissions.  Programs ask for `666`
+      (files) or `777` (directories), and the **umask** removes bits from that:
+
+      | umask | new file | new directory |
+      |---|---|---|
+      | `022` | 644 `rw-r--r--` | 755 `rwxr-xr-x` |
+      | `002` | 664 `rw-rw-r--` | 775 `rwxrwxr-x` |
+      | `077` | 600 `rw-------` | 700 `rwx------` |
+
+      ```
+      $ umask
+      0002
+      $ umask 077       # this shell only: everything private from now on
+      ```
+
+      Ubuntu's default for normal users is `002` (user private groups make this safe).
+  - title: The special bits
+    content: |
+      Three extra bits appear in the execute positions:
+
+      * **setuid** (`s` in user-x, octal 4000) on a program: it runs with the
+        privileges of the file's *owner*.  `/usr/bin/passwd` is setuid root so that
+        ordinary users can change their own password in /etc/shadow.
+      * **setgid** (`s` in group-x, 2000) on a **directory**: new files inside inherit
+        the directory's group - ideal for shared project directories.
+      * **sticky** (`t` in other-x, 1000) on a directory: users may only delete *their
+        own* files in it.  `/tmp` is `drwxrwxrwt`.
+
+      ```
+      $ ls -ld /tmp /usr/bin/passwd
+      drwxrwxrwt 10 root root  4096 ... /tmp
+      -rwsr-xr-x  1 root root 64152 ... /usr/bin/passwd
+      ```
+
+      :::warning
+      setuid programs are a classic security risk.  An administrator should know
+      exactly which setuid files exist: `find / -perm -4000 -type f 2>/dev/null`.
+      :::
+  - title: Diagnosing Permission denied
+    content: |
+      Work through the questions systematically:
+
+      1. Which user and groups is the process running as? (`id`)
+      2. Who owns the file, what is its group and mode? (`ls -l`, `stat`)
+      3. Which category applies - user, group or other - and does it allow the access?
+      4. Do I have **x** on every directory of the path?  `namei -l /path/to/file`
+         shows every component at once.
+      5. For delete/rename: do I have **w** (and x) on the *directory*?  Is it sticky?
+
+      Group membership changes only take effect at the next login (or with `newgrp`).
+    examples:
+      - command: namei -l /etc/ssh/sshd_config
+        explanation: Permissions of every directory along the path.
+
+exercises:
+  - id: fix-access
+    title: Why can't I read it?
+    instructions: |
+      You cannot read **/srv/reports/q1.txt** - try `cat /srv/reports/q1.txt`.  The file
+      itself is readable by everyone; the problem is elsewhere in the path.
+
+      Find the problem and fix it **with sudo**, so that `student` can read the file -
+      without making anything writable for others.
+    setup: |
+      mkdir -p /srv/reports && echo "Q1 revenue: 1.2M" > /srv/reports/q1.txt
+      chmod 644 /srv/reports/q1.txt; chmod 700 /srv/reports; chown root:root /srv/reports
+    reference: sudo chmod 755 /srv/reports
+    alternatives: ['sudo chmod o+rx /srv/reports', 'sudo chmod o+x /srv/reports']
+    checks:
+      - {type: command, run: "cat /srv/reports/q1.txt", user: student, exit_code: 0,
+         fail: "student still cannot read /srv/reports/q1.txt. Look at the directory's permissions with ls -ld /srv/reports or namei -l."}
+    constraints:
+      - {type: mode, path: /srv/reports, lacks: o+w, fail: "/srv/reports is now writable by everyone - a security problem."}
+      - {type: mode, path: /srv/reports/q1.txt, lacks: o+w, fail: "q1.txt is now writable by everyone."}
+    wrong:
+      - {run: sudo chmod -R 777 /srv/reports, expect: correct_side_effects}
+    hints:
+      - To open a file you need search permission on every directory in its path.
+      - "namei -l /srv/reports/q1.txt or ls -ld /srv/reports shows the directory is rwx------ - others lack x."
+      - sudo chmod o+x /srv/reports
+      - "The directory mode 700 blocks everyone but root. sudo chmod 755 /srv/reports (or o+rx) lets others enter it; the file's own 644 then allows reading."
+  - id: umask
+    title: Private by default
+    instructions: |
+      Configure your shell so that every **new** file you create is private by default
+      (mode `600` for files, `700` for directories) - in **every new shell** you open, not
+      just the current one.
+
+      Hint: put the right `umask` command into **~/.bashrc**.
+    setup: |
+      sed -i '/umask/d' {home}/.bashrc
+    reference: echo 'umask 077' >> ~/.bashrc
+    checks:
+      - {type: command, run: "bash -lic 'umask' 2>/dev/null </dev/null", user: student, stdout_regex: '^0?077$',
+         fail: "A new shell does not have umask 077. Add the line umask 077 to ~/.bashrc."}
+    hints:
+      - The umask removes permission bits from new files; 077 removes everything for group and others.
+      - Shell settings that must apply to every new shell go into ~/.bashrc.
+      - echo 'umask 077' >> ~/.bashrc
+      - "Appending umask 077 to ~/.bashrc makes every new interactive shell create files as 600 and directories as 700. Open a new terminal tab and check with umask."
+
+quiz:
+  questions:
+    - id: q-order
+      type: interpret
+      topic: How an access is checked
+      prompt: The user student (member of group staff) tries to write to this file.  What happens?
+      output: "-r--rw-rw- 1 student staff 120 report.txt"
+      options:
+        - Allowed, because the group may write
+        - Allowed, because others may write
+        - Denied - student is the owner, so only the owner bits r-- apply
+        - Allowed - owners can always write
+      answer: 2
+    - id: q-umask
+      type: mcq
+      topic: Default permissions and umask
+      prompt: With umask 027, what mode does a newly created regular file get?
+      options: ["640", "750", "644", "600"]
+      answer: 0
+      explanation: 666 minus 027 gives 640 (rw-r-----).
+    - id: q-sticky
+      type: mcq
+      topic: The special bits
+      prompt: What does the sticky bit on /tmp achieve?
+      options:
+        - Files in /tmp are never deleted
+        - Users can delete only their own files in /tmp
+        - Only root can write to /tmp
+        - Programs in /tmp run as root
+      answer: 1
+    - id: q-setuid
+      type: truefalse
+      topic: The special bits
+      prompt: passwd is setuid root so that ordinary users can update /etc/shadow when changing their own password.
+      answer: true
+    - id: q-setgid-dir
+      type: mcq
+      topic: The special bits
+      prompt: What is the effect of the setgid bit on a directory?
+      options: [Files created in it inherit the directory's group, Only the group may enter it, It runs as root, Nothing - it only applies to files]
+      answer: 0
+    - id: q-dirx
+      type: troubleshoot
+      topic: Diagnosing Permission denied
+      prompt: |
+        `cat /data/project/readme.txt` fails with Permission denied although readme.txt is
+        mode 644.  Which command is most useful to diagnose this?
+      options: [chmod 777 /data, namei -l /data/project/readme.txt, cat -v readme.txt, sudo cat readme.txt]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Find setuid programs
+      topic: The special bits
+      prompt: |
+        Create **~/setuid.txt** listing the full paths of all **setuid** regular files
+        under **/usr/bin**, one per line.
+      setup: rm -f {home}/setuid.txt
+      reference: find /usr/bin -type f -perm -4000 > ~/setuid.txt
+      alternatives: ['find /usr/bin -perm -u=s -type f 2>/dev/null > ~/setuid.txt']
+      checks:
+        - type: command
+          run: "diff <(sort /home/student/setuid.txt) <(find /usr/bin -type f -perm -4000 | sort)"
+          exit_code: 0
+          fail: ~/setuid.txt does not list exactly the setuid files under /usr/bin.
+      hints:
+        - find can select files by permission bits.
+        - "-perm -4000 means 'the setuid bit is set (other bits may be anything)'."
+        - find /usr/bin -type f -perm -4000 > ~/setuid.txt
+        - "find /usr/bin -type f -perm -4000 prints passwd, sudo, su, mount ... ; > saves the list."

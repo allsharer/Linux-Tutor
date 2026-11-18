@@ -1,0 +1,198 @@
+id: b06-paths
+level: beginner
+module: filesystem
+title: Absolute and relative paths
+duration: 25
+objectives:
+  - Distinguish absolute paths from relative paths
+  - Use the special names ., .. and ~
+  - Find out where you are with pwd
+  - Choose the right kind of path for a task
+
+sections:
+  - title: What is a path?
+    content: |
+      A **path** is the address of a file or directory in the tree.  Its parts are
+      separated by slashes:
+
+      ```
+      /home/student/projects/report.txt
+      ```
+
+      Read it from the left: start at the root `/`, go into `home`, then `student`,
+      then `projects`, and there is `report.txt`.
+  - title: Absolute paths
+    content: |
+      An **absolute path** starts with `/`.  It describes the location starting from
+      the root, so it means the same thing no matter where you are:
+
+      ```
+      /etc/hostname
+      /home/student/notes
+      /var/log/syslog
+      ```
+
+      Absolute paths are unambiguous.  They are the safe choice in scripts and
+      instructions you give to other people.
+  - title: Relative paths and the current directory
+    content: |
+      Every shell has a **current working directory** - the place you are "in".
+      `pwd` (print working directory) shows it:
+
+      ```
+      $ pwd
+      /home/student
+      ```
+
+      A **relative path** does *not* start with `/`.  It is interpreted starting from
+      the current directory.  If you are in `/home/student`, then
+
+      ```
+      projects/report.txt      means   /home/student/projects/report.txt
+      ```
+
+      The same relative path means something different in another directory.  That
+      is the source of many beginner mistakes - for example creating a directory in
+      `/tmp` when you meant your home directory.
+
+      :::warning
+      Before you create or delete something with a relative path, make sure you
+      know where you are.  `pwd` costs nothing.
+      :::
+    examples:
+      - command: pwd
+        explanation: Shows the current working directory.
+  - title: The special names . .. and ~
+    content: |
+      Three short names are available everywhere:
+
+      | Name | Meaning |
+      |---|---|
+      | `.` | the current directory |
+      | `..` | the **parent** directory (one level up) |
+      | `~` | your **home** directory (`/home/student`); `~alice` is alice's home |
+
+      ```
+      /home/student/projects $ ls ..          # lists /home/student
+      /home/student/projects $ ls ../..       # lists /home
+      /home/student/projects $ ls ~/notes     # lists /home/student/notes
+      /home/student/projects $ ls ./drafts    # same as: ls drafts
+      ```
+
+      `~` is expanded by the shell before the command runs, so `~/notes` is really an
+      absolute path in disguise.  The variable `$HOME` holds the same value.
+    more: |
+      Every directory physically contains two entries called `.` and `..` - run
+      `ls -a` and you will see them.  `..` of the root directory is the root itself,
+      so `cd /..` leaves you in `/`.
+
+exercises:
+  - id: abs-file
+    title: Create a file using an absolute path
+    instructions: |
+      Your current directory might be anywhere.  Without changing directory, create an
+      empty file called **paths.txt** inside **/tmp/lab** using an **absolute path**.
+
+      (`touch FILE` creates an empty file.)
+    setup: |
+      rm -rf /tmp/lab; mkdir -p /tmp/lab; chmod 1777 /tmp/lab; rm -f {home}/paths.txt
+    reference: touch /tmp/lab/paths.txt
+    alternatives: ['cd /tmp/lab && touch paths.txt', 'cd /tmp && touch lab/paths.txt']
+    wrong:
+      - {run: touch paths.txt, expect: incorrect, feedback: "/home/student/paths.txt"}
+    checks:
+      - {type: file_exists, path: /tmp/lab/paths.txt}
+    diagnostics:
+      - when: {type: find, name: paths.txt, exclude: [/tmp/lab/paths.txt]}
+        message: >
+          paths.txt was created at {found}.  A name without a leading / is relative to the
+          current directory.  Use the absolute path /tmp/lab/paths.txt.
+    hints:
+      - An absolute path starts at the root directory.
+      - Begin the path with / and name every directory down to the file.
+      - touch /tmp/lab/paths.txt
+      - "touch /tmp/lab/paths.txt creates the file in /tmp/lab regardless of your current directory."
+  - id: relative
+    title: Use relative paths with ..
+    instructions: |
+      The directory **~/a/b/c** has been created for you.  Change into it with `cd`, then -
+      **using only relative paths** - create the file **~/a/up.txt** (two levels up).
+
+      The tutor checks the result: ~/a/up.txt must exist.
+    setup: |
+      rm -rf {home}/a; mkdir -p {home}/a/b/c; chown -R student: {home}/a
+    reference: cd ~/a/b/c && touch ../../up.txt
+    wrong:
+      - {run: cd ~/a/b/c && touch ../up.txt, expect: incorrect, feedback: only one level up}
+    checks:
+      - {type: file_exists, path: ~/a/up.txt}
+    diagnostics:
+      - when: {type: file_exists, path: ~/a/b/up.txt}
+        message: up.txt was created in ~/a/b - only one level up.  `..` goes up one level; `../..` goes up two.
+      - when: {type: file_exists, path: ~/a/b/c/up.txt}
+        message: up.txt was created in ~/a/b/c, the current directory.  Use .. to refer to parent directories.
+    hints:
+      - .. means "the parent directory"; you can chain it.
+      - Two levels up from c is ../.. .
+      - cd ~/a/b/c   then   touch ../../up.txt
+      - "From ~/a/b/c, ../.. is ~/a, so touch ../../up.txt creates ~/a/up.txt."
+
+quiz:
+  questions:
+    - id: q-abs
+      type: multi
+      topic: Absolute paths
+      prompt: Which of these are absolute paths?
+      options: [/etc/passwd, docs/report.txt, ../notes, /home/student, ./run.sh]
+      answer: [0, 3]
+    - id: q-rel
+      type: mcq
+      topic: Relative paths and the current directory
+      prompt: Your current directory is /var/log.  Which file does the relative path apt/history.log refer to?
+      options: [/apt/history.log, /var/log/apt/history.log, /home/student/apt/history.log, /var/apt/history.log]
+      answer: 1
+    - id: q-dotdot
+      type: mcq
+      topic: The special names . .. and ~
+      prompt: You are in /home/student/projects/web.  Where does ../.. lead?
+      options: [/home/student, /home, /home/student/projects, /]
+      answer: 0
+    - id: q-tilde
+      type: truefalse
+      topic: The special names . .. and ~
+      prompt: For the user student, ~/notes and /home/student/notes refer to the same directory.
+      answer: true
+    - id: q-pwd
+      type: short
+      topic: Relative paths and the current directory
+      prompt: Which command prints your current working directory?
+      answer: [pwd]
+    - id: q-mistake
+      type: troubleshoot
+      topic: Relative paths and the current directory
+      prompt: |
+        A student is told to create ~/backup.  They type `mkdir backup` and later cannot
+        find the directory in their home.  What is the most likely explanation?
+      options:
+        - mkdir silently failed
+        - Their current directory was not their home directory, so backup was created elsewhere
+        - Directories cannot be called backup
+        - They need sudo to create directories
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Paths in practice
+      topic: Absolute and relative paths
+      prompt: |
+        Create the directory **/tmp/lab/reports** and inside it an empty file **jan.txt**.
+        Then create **notes.txt** in your home directory.
+      setup: rm -rf /tmp/lab; mkdir -p /tmp/lab; chmod 1777 /tmp/lab; rm -f {home}/notes.txt
+      reference: mkdir /tmp/lab/reports && touch /tmp/lab/reports/jan.txt ~/notes.txt
+      checks:
+        - {type: file_exists, path: /tmp/lab/reports/jan.txt}
+        - {type: file_exists, path: ~/notes.txt}
+      hints:
+        - Use absolute paths, or the ~ shortcut, so your current directory does not matter.
+        - mkdir creates directories; touch creates empty files.
+        - mkdir /tmp/lab/reports; touch /tmp/lab/reports/jan.txt ~/notes.txt
+        - "touch accepts several paths at once; ~/notes.txt expands to /home/student/notes.txt."

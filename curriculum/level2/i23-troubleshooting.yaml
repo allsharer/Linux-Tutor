@@ -1,0 +1,182 @@
+id: i23-troubleshooting
+level: intermediate
+module: operations
+title: Basic troubleshooting
+duration: 40
+objectives:
+  - Follow a systematic troubleshooting method
+  - Read error messages and logs to locate a fault
+  - Diagnose permission, path, disk-space, service and configuration problems
+  - Verify the fix and document it
+
+sections:
+  - title: A method, not luck
+    content: |
+      1. **Define the problem precisely.**  "The website is broken" → "requests to
+         /login return 500 since 10:15".
+      2. **Gather information.**  Error messages, logs (`journalctl`, `/var/log`), recent
+         changes (`apt history`, edited config files, `last`).
+      3. **Form a hypothesis** - the simplest explanation that fits the facts.
+      4. **Test it** with a harmless check before changing anything.
+      5. **Fix one thing at a time**, keeping a backup of what you change.
+      6. **Verify** the fix and that nothing else broke.
+      7. **Document** what happened and why.
+
+      :::tip
+      Read the **whole** error message.  "Permission denied", "No such file or
+      directory", "No space left on device", "Address already in use" and "command not
+      found" each point to a specific family of causes.
+      :::
+  - title: Classic problems and first checks
+    content: |
+      | Symptom | First checks |
+      |---|---|
+      | command not found | typo? installed (`dpkg -S`, `apt policy`)? `echo $PATH`, `type cmd` |
+      | Permission denied | `id`, `ls -l`, `namei -l path`, execute bit, sudo needed? |
+      | No such file or directory | path, case, relative vs absolute, broken symlink, missing interpreter in the shebang |
+      | No space left on device | `df -h`, `df -i`, `du`, deleted-but-open files (`lsof +L1`) |
+      | service won't start | `systemctl status svc`, `journalctl -u svc -e`, config test (`nginx -t`, `sshd -t`) |
+      | Address already in use | `ss -tlnp` - who already has the port? |
+      | slow system | `uptime`, `top`, `free -h`, `iostat`, `dmesg` |
+  - title: Reading service failures
+    content: |
+      ```
+      $ systemctl status myapp
+      × myapp.service - My application
+           Active: failed (Result: exit-code) since ...
+          Process: 812 ExecStart=/usr/local/bin/myapp (code=exited, status=1/FAILURE)
+      ... myapp[812]: ERROR: config /etc/myapp.conf line 3: unknown key 'prot'
+      ```
+
+      The last lines of `systemctl status` are the most recent journal entries for the
+      unit - very often they contain the answer.  `journalctl -u myapp -e` shows more.
+
+      After fixing: `sudo systemctl restart myapp`, then check `systemctl status` again.
+
+exercises:
+  - id: broken-script
+    title: The script that will not run
+    instructions: |
+      The script **~/report.sh** should print `Report OK`, but `./report.sh` fails.  Find
+      out why (read the error message carefully) and fix it so that `./report.sh` prints
+      `Report OK`.  There may be more than one problem.
+    setup: |
+      printf '#!/bin/bsh\necho "Report OK"\n' > {home}/report.sh; chmod 644 {home}/report.sh; chown student: {home}/report.sh
+    reference: |
+      sed -i '1s|.*|#!/bin/bash|' ~/report.sh
+      chmod +x ~/report.sh
+    checks:
+      - {type: script, path: ~/report.sh, stdout_equals: Report OK}
+    diagnostics:
+      - when: {type: mode, path: ~/report.sh, has: u+x}
+        message: >
+          The execute bit is set now, but "bad interpreter: No such file or directory" means the
+          program named in the first line (#!) does not exist.  Look at the shebang line closely.
+    hints:
+      - There are two problems - one is about permissions, the other about the first line.
+      - "Permission denied = no execute bit. 'bad interpreter' = the #! path is wrong."
+      - chmod +x ~/report.sh, then fix the first line to #!/bin/bash
+      - "The shebang said /bin/bsh (a typo). sed -i '1s|.*|#!/bin/bash|' ~/report.sh fixes it; chmod +x adds the execute bit."
+  - id: broken-service
+    title: A service that will not start
+    instructions: |
+      The service **tutor-web** fails to start.  Investigate with `systemctl status
+      tutor-web` and its journal, fix the cause in its **configuration file**, and start
+      it.  The service must end up **active (running)**.
+
+      (Do not edit the service's program or unit file - only its configuration.)
+    setup: |
+      cat > /usr/local/bin/tutor-web <<'EOF'
+      #!/bin/bash
+      conf=/etc/tutor-web.conf
+      [ -r "$conf" ] || { echo "ERROR: cannot read $conf" >&2; exit 1; }
+      port=$(sed -n 's/^port=//p' "$conf")
+      [[ $port =~ ^[0-9]+$ ]] || { echo "ERROR: $conf: 'port' must be a number, got '$port'" >&2; exit 1; }
+      exec python3 -m http.server "$port" --directory /var/tmp
+      EOF
+      chmod 755 /usr/local/bin/tutor-web
+      cat > /etc/systemd/system/tutor-web.service <<'EOF'
+      [Unit]
+      Description=Tutor demo web service
+      [Service]
+      ExecStart=/usr/local/bin/tutor-web
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      printf '# tutor-web configuration\nport=80a8\n' > /etc/tutor-web.conf
+      systemctl daemon-reload; systemctl stop tutor-web 2>/dev/null; systemctl reset-failed tutor-web 2>/dev/null
+      md5sum /etc/systemd/system/tutor-web.service /usr/local/bin/tutor-web > /root/.tutor-web.md5
+      systemctl start tutor-web 2>/dev/null; true
+    cleanup: systemctl stop tutor-web 2>/dev/null || true
+    reference: |
+      sudo sed -i 's/^port=.*/port=8088/' /etc/tutor-web.conf
+      sudo systemctl restart tutor-web
+    checks:
+      - {type: service_active, name: tutor-web}
+      - {type: command, run: "sleep 1; systemctl is-active tutor-web", stdout_equals: active, fail: "tutor-web started but stopped again."}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.tutor-web.md5", exit_code: 0,
+         fail: "The program or unit file was modified - the task was to fix the configuration."}
+    hints:
+      - systemctl status shows the last log lines of the service.
+      - "The journal says: 'port' must be a number. Look at /etc/tutor-web.conf."
+      - "sudo nano /etc/tutor-web.conf  (set port=8088), then sudo systemctl restart tutor-web"
+      - "The config had a typo (port=80a8). After fixing it, restart the service and confirm with systemctl status tutor-web."
+
+quiz:
+  questions:
+    - id: q-first
+      type: mcq
+      topic: A method, not luck
+      prompt: What is the best first step when a user reports "the server is broken"?
+      options: [Reboot it, Define the problem precisely and gather information, Reinstall the software, Change several settings at once]
+      answer: 1
+    - id: q-badinterp
+      type: troubleshoot
+      topic: Classic problems and first checks
+      prompt: "`./deploy.sh` prints 'bash: ./deploy.sh: /bin/bash^M: bad interpreter'.  Cause?"
+      options: [bash is not installed, The file has Windows (CRLF) line endings, The file is not executable, The disk is full]
+      answer: 1
+      explanation: The ^M is a carriage return; fix with sed -i 's/\r$//' deploy.sh or dos2unix.
+    - id: q-inuse
+      type: troubleshoot
+      topic: Classic problems and first checks
+      prompt: A web server fails with "Address already in use".  Which command shows what holds the port?
+      options: [df -h, ss -tlnp, free -h, ps -u root]
+      answer: 1
+    - id: q-one
+      type: truefalse
+      topic: A method, not luck
+      prompt: Changing one thing at a time makes it possible to know which change fixed (or broke) something.
+      answer: true
+    - id: q-status
+      type: short
+      topic: Reading service failures
+      prompt: Which command shows a service's state together with its most recent log lines? (for a unit called app)
+      answer: ["systemctl status app", "sudo systemctl status app", "re:(sudo\\s+)?systemctl\\s+status\\s+app(\\.service)?"]
+    - id: q-practical
+      type: practical
+      title: Disk full
+      topic: Classic problems and first checks
+      prompt: |
+        Writing to **/mnt/data** fails with "No space left on device".  Find out what is
+        using the space on that (small) filesystem and **delete the one large file that is
+        obviously junk** - a file named `*.tmp`.  Do not delete the other files.
+        Afterwards at least **20 MB** must be free on /mnt/data.
+      setup: |
+        umount /mnt/data 2>/dev/null; mkdir -p /mnt/data; mount -t tmpfs -o size=40m tmpfs /mnt/data
+        mkdir -p /mnt/data/db /mnt/data/cache; head -c 5M /dev/urandom > /mnt/data/db/records.db
+        head -c 2M /dev/urandom > /mnt/data/cache/index.bin; dd if=/dev/zero of=/mnt/data/cache/build-73.tmp bs=1M count=40 2>/dev/null; true
+      cleanup: umount /mnt/data 2>/dev/null || true
+      reference: sudo rm /mnt/data/cache/build-73.tmp
+      checks:
+        - {type: command, run: "df --output=avail -BM /mnt/data | tail -1 | tr -dc 0-9", stdout_regex: '^([2-9][0-9]|[1-9][0-9]{2,})$',
+           fail: "There is still less than 20 MB free on /mnt/data."}
+      constraints:
+        - {type: file_exists, path: /mnt/data/db/records.db, fail: "records.db was deleted - that is data, not junk!"}
+        - {type: file_exists, path: /mnt/data/cache/index.bin, fail: "index.bin was deleted."}
+      hints:
+        - Find which file is large.
+        - "df -h /mnt/data confirms it is full; du -ah /mnt/data | sort -h shows the biggest items."
+        - du -ah /mnt/data | sort -h | tail
+        - "The 35+ MB build-73.tmp is the junk; sudo rm /mnt/data/cache/build-73.tmp frees the space."

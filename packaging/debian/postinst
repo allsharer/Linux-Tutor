@@ -1,0 +1,12 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q /usr/share/applications || true
+    command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -q /usr/share/icons/hicolor || true
+    echo "Linux Tutor installed."
+    echo "Each user prepares their laboratory once, as themselves (not root):"
+    echo "    linux-tutor-lab build            # needs internet access, ~5 minutes"
+    echo "or  linux-tutor-lab import FILE.tar  # offline, from a release bundle"
+    echo "The application also offers to do this on first start."
+fi
+exit 0

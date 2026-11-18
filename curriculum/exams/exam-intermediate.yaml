@@ -1,0 +1,173 @@
+id: exam-intermediate
+title: Intermediate Level Examination
+level: intermediate
+sample_from_lessons: 12
+description: |
+  This examination covers the **Intermediate** level: permissions and ownership, links,
+  searching, text processing, redirection, the shell environment and scripting, processes
+  and jobs, software, storage, networking, SSH, cron, logs and troubleshooting.
+
+  Practical tasks carry double weight.  They are new scenarios that combine several topics.
+
+questions:
+  - id: y-umask
+    type: mcq
+    topic: i02-ownership-permissions
+    prompt: With umask 077, which mode does a new directory get?
+    options: ["755", "700", "777", "770"]
+    answer: 1
+  - id: y-link
+    type: troubleshoot
+    topic: i04-links
+    prompt: "/opt/app/current is a symlink to releases/v3.  After deleting releases/v3, the app fails with 'No such file or directory'.  Why?"
+    options: [Symlinks are copied, The symlink is now dangling - its target no longer exists, The app needs restarting only, Hard links break]
+    answer: 1
+  - id: y-cron
+    type: interpret
+    topic: i21-cron
+    prompt: When does this job run?
+    output: "15 */6 * * * /usr/local/bin/sync"
+    options: [Every 15 minutes, At minute 15 of every 6th hour (00:15, 06:15, 12:15, 18:15), At 06:15 only, Every 6 minutes]
+    answer: 1
+  - id: y-ssh
+    type: mcq
+    topic: i20-ssh
+    prompt: Which permission problem makes sshd ignore authorized_keys?
+    options: [The file is mode 600, The file or ~/.ssh is writable by group or others, The key is ed25519, The file is owned by the user]
+    answer: 1
+
+  - id: y-p1
+    type: practical
+    title: Shared directory for a team
+    topic: i03-chmod-chown-chgrp
+    prompt: |
+      Create **/srv/marketing** for the group **marketing** (create the group; add **student**
+      to it): owned by **root:marketing**, group members may create and edit files, new files
+      automatically belong to the marketing group, other users have **no access**.
+    setup: |
+      rm -rf /srv/marketing; getent group marketing >/dev/null && gpasswd -d student marketing >/dev/null 2>&1; groupdel marketing 2>/dev/null; true
+    reference: |
+      sudo groupadd marketing && sudo usermod -aG marketing student
+      sudo mkdir /srv/marketing && sudo chown root:marketing /srv/marketing && sudo chmod 2770 /srv/marketing
+    checks:
+      - {type: user_in_group, user: student, group: marketing}
+      - {type: owner, path: /srv/marketing, user: root, group: marketing}
+      - {type: mode, path: /srv/marketing, mode: "2770"}
+    hints: [groupadd, usermod -aG, chown, chmod with setgid., "2770 = setgid + rwx for owner and group.", "sudo chmod 2770 /srv/marketing", "Reuse the team-directory pattern."]
+  - id: y-p2
+    type: practical
+    title: Monitoring script
+    topic: i11-conditionals
+    prompt: |
+      Write an executable script **~/diskcheck.sh** that takes a **mount point** and a
+      **threshold** (percent).  It prints `OK` and exits **0** when the filesystem's use% is
+      **below** the threshold, otherwise prints `ALERT <mountpoint> <use>%` and exits **1**.
+
+          ./diskcheck.sh / 99    -> OK
+          ./diskcheck.sh / 1     -> ALERT / 23%    (with the real percentage)
+
+      Hint: `df --output=pcent MOUNTPOINT | tail -1` prints e.g. ` 23%`.
+    setup: rm -f {home}/diskcheck.sh
+    reference: |
+      cat > ~/diskcheck.sh <<'EOF'
+      #!/bin/bash
+      use=$(df --output=pcent "$1" | tail -1 | tr -dc 0-9)
+      if (( use < $2 )); then echo OK; exit 0; fi
+      echo "ALERT $1 ${use}%"; exit 1
+      EOF
+      chmod +x ~/diskcheck.sh
+    checks:
+      - {type: script, path: ~/diskcheck.sh, args: [/, "100"], stdout_equals: OK, exit_code: 0}
+      - type: command
+        user: student
+        run: "u=$(df --output=pcent / | tail -1 | tr -dc 0-9); out=$(/home/student/diskcheck.sh / 0); rc=$?; [ \"$out\" = \"ALERT / ${u}%\" ] && [ $rc -eq 1 ] && echo good || echo \"bad: $out rc=$rc\""
+        stdout_equals: good
+        fail: "With threshold 0 the script must print 'ALERT / NN%' (the real usage) and exit 1."
+    hints: [Get the number, compare, print., "tr -dc 0-9 keeps only digits; (( use < $2 )) compares.", "use=$(df --output=pcent \"$1\" | tail -1 | tr -dc 0-9)", "Then an if with exit 0 / exit 1."]
+  - id: y-p3
+    type: practical
+    title: Install and schedule
+    topic: i15-package-management
+    prompt: |
+      Install the package **ncdu**, then add a crontab entry for **student** that runs
+      `/usr/bin/ncdu -o /home/student/usage.json /home/student` every **Sunday at 23:00**.
+    setup: |
+      apt-get purge -y -q ncdu >/dev/null 2>&1; crontab -r -u student 2>/dev/null; true
+    reference: |
+      sudo apt-get install -y ncdu
+      echo "0 23 * * 0 /usr/bin/ncdu -o /home/student/usage.json /home/student" | crontab -
+    checks:
+      - {type: package_installed, name: ncdu}
+      - {type: crontab_contains, user: student, regex: '^\s*0\s+23\s+\*\s+\*\s+(0|7|[Ss]un)\s+/usr/bin/ncdu\s+-o\s+/home/student/usage\.json\s+/home/student'}
+    hints: [apt install, then crontab., "Sunday is 0 or 7 in the day-of-week field.", "sudo apt install ncdu; crontab -e", "0 23 * * 0 ..."]
+  - id: y-p4
+    type: practical
+    title: Broken symlinks
+    topic: i05-searching
+    prompt: |
+      **/srv/links** contains many symbolic links; some are **broken**.  Delete **only the
+      broken links**.  Working links and regular files must remain.
+    setup: |
+      rm -rf /srv/links /srv/targets; mkdir -p /srv/links /srv/targets; cd /srv/targets; touch a b c
+      cd /srv/links; ln -s /srv/targets/a good1; ln -s /srv/targets/b good2; ln -s /srv/targets/x bad1; ln -s /nowhere bad2
+      mkdir sub; ln -s /srv/targets/zzz sub/bad3; ln -s ../../targets/c sub/good3; echo data > plain.txt
+      chown -R student: /srv/links
+    reference: find /srv/links -xtype l -delete
+    alternatives: ["find -L /srv/links -type l -exec rm {} +"]
+    checks:
+      - {type: command, run: "find -L /srv/links -type l | wc -l", stdout_equals: "0", fail: "Broken links remain."}
+    constraints:
+      - {type: symlink, path: /srv/links/good1, valid: true}
+      - {type: symlink, path: /srv/links/sub/good3, valid: true}
+      - {type: file_exists, path: /srv/links/plain.txt}
+    hints: [find can test whether a link's target exists., "find -xtype l (or find -L ... -type l) lists broken links.", find /srv/links -xtype l, "Add -delete after checking the list."]
+  - id: y-p5
+    type: practical
+    title: The failing service
+    topic: i23-troubleshooting
+    prompt: |
+      **quotes.service** should serve quotes on port **8097** but fails.  Diagnose it from its
+      status and journal and repair it - **do not edit the unit file or the program**.  It must
+      be active and listening on 8097.
+    setup: |
+      cat > /usr/local/bin/quotes <<'EOF'
+      #!/bin/bash
+      f=/srv/quotes/quotes.txt
+      [ -s "$f" ] || { echo "ERROR: quote file $f missing or empty" >&2; exit 1; }
+      exec python3 -m http.server 8097 --directory /srv/quotes
+      EOF
+      chmod 755 /usr/local/bin/quotes; md5sum /usr/local/bin/quotes > /root/.quotes.md5
+      printf '[Service]\nExecStart=/usr/local/bin/quotes\n' > /etc/systemd/system/quotes.service
+      md5sum /etc/systemd/system/quotes.service >> /root/.quotes.md5
+      rm -rf /srv/quotes; mkdir -p /srv/quotes; : > /srv/quotes/quotes.txt
+      echo "Simplicity is prerequisite for reliability." > /srv/quotes/quotes.txt.bak
+      systemctl daemon-reload; systemctl restart quotes 2>/dev/null; true
+    cleanup: systemctl stop quotes 2>/dev/null || true
+    reference: |
+      sudo cp /srv/quotes/quotes.txt.bak /srv/quotes/quotes.txt
+      sudo systemctl restart quotes; sleep 1
+    checks:
+      - {type: service_active, name: quotes}
+      - {type: port_listening, port: 8097}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.quotes.md5", exit_code: 0, fail: "The unit or program was modified."}
+    hints: [Read systemctl status quotes., "The program says the quote file is empty - a backup copy exists next to it.", "sudo cp /srv/quotes/quotes.txt.bak /srv/quotes/quotes.txt", "Then sudo systemctl restart quotes."]
+  - id: y-p6
+    type: practical
+    title: Archive and transfer
+    topic: i17-disk-usage
+    prompt: |
+      Create a **gzip-compressed** archive **/tmp/logs-backup.tar.gz** of the directory
+      **/srv/applogs** (members starting with `applogs/`), then use **scp** over SSH to copy it
+      to **student@localhost:/home/student/received/** (the directory exists; SSH key login
+      is already set up).
+    setup: |
+      systemctl start ssh; rm -rf {home}/.ssh {home}/received /tmp/logs-backup.tar.gz /srv/applogs
+      mkdir -p /srv/applogs {home}/received; for d in mon tue; do echo "log $d" > /srv/applogs/$d.log; done; chown student: {home}/received
+      su student -c 'mkdir -p ~/.ssh && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519 && cat ~/.ssh/id_ed25519.pub > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && ssh-keyscan localhost > ~/.ssh/known_hosts 2>/dev/null'
+    reference: |
+      tar czf /tmp/logs-backup.tar.gz -C /srv applogs
+      scp /tmp/logs-backup.tar.gz student@localhost:/home/student/received/
+    checks:
+      - {type: command, run: "tar tzf /home/student/received/logs-backup.tar.gz", stdout_contains: [applogs/mon.log, applogs/tue.log]}
+    hints: [tar with -C, then scp., "tar czf ARCHIVE -C /srv applogs", "scp FILE student@localhost:/home/student/received/", "Both steps are from the storage and SSH lessons."]

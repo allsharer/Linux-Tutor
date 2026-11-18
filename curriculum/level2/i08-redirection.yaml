@@ -1,0 +1,182 @@
+id: i08-redirection
+level: intermediate
+module: text
+title: Input/output redirection
+duration: 30
+objectives:
+  - Use every redirection operator, including 2>&1 ordering
+  - Feed multi-line input with here-documents and here-strings
+  - Protect files with noclobber
+  - Understand file descriptors and /dev/null, /dev/zero, /dev/urandom
+
+sections:
+  - title: File descriptors
+    content: |
+      Redirection works on **file descriptors** (FDs): small numbers a process uses for
+      open files.  0 = stdin, 1 = stdout, 2 = stderr.
+
+      | Operator | Meaning |
+      |---|---|
+      | `n> file` | open file for writing as FD n (default 1) |
+      | `n>> file` | append |
+      | `n< file` | open file for reading as FD n (default 0) |
+      | `n>&m` | make FD n a copy of FD m |
+      | `&> file` | stdout and stderr to file (bash) |
+      | `n>&-` | close FD n |
+  - title: Order matters
+    content: |
+      Redirections are processed **left to right**:
+
+      ```
+      cmd > out.log 2>&1     # stdout -> out.log, then stderr -> where stdout goes = out.log
+      cmd 2>&1 > out.log     # stderr -> where stdout goes NOW (terminal), then stdout -> out.log
+      ```
+
+      The second form leaves errors on the screen.  Read `2>&1` as "make 2 point where 1
+      points *at this moment*".
+  - title: Here-documents and here-strings
+    content: |
+      A **here-document** feeds several lines to a command's stdin:
+
+      ```
+      cat > /tmp/app.conf <<EOF
+      name=$USER
+      started=$(date)
+      EOF
+      ```
+
+      Variables and `$( )` are expanded; quote the delimiter (`<<'EOF'`) to keep the text
+      literal.  `<<-EOF` strips leading tabs so you can indent in scripts.
+
+      A **here-string** passes one string: `grep -c a <<< "banana"`.
+    examples:
+      - command: "cat <<EOF\nHello $USER, today is $(date +%A)\nEOF"
+        explanation: A here-document with expansion.
+      - command: wc -w <<< "one two three"
+        explanation: A here-string.
+  - title: Safety and special files
+    content: |
+      `set -o noclobber` makes `>` refuse to overwrite existing files; use `>|` to force.
+
+      Special device files:
+
+      * `/dev/null` - discards writes, returns end-of-file on reads;
+      * `/dev/zero` - endless zero bytes (`head -c 1M /dev/zero > blank.img`);
+      * `/dev/urandom` - endless random bytes (`head -c 16 /dev/urandom | base64`).
+
+      `> file` alone (or `: > file`) **truncates** a file to zero length - handy for
+      emptying a log without deleting it (a running program keeps writing to it).
+
+exercises:
+  - id: both-streams
+    title: Capture everything
+    instructions: |
+      The script **/usr/local/bin/noisy** writes to both stdout and stderr.  Run it so that
+      **both** streams end up in **~/all.log**, in the order they were produced.
+    setup: |
+      printf '#!/bin/bash\necho "step 1 ok"\necho "warning: low disk" >&2\necho "step 2 ok"\necho "error: step 3 failed" >&2\n' > /usr/local/bin/noisy
+      chmod 755 /usr/local/bin/noisy; rm -f {home}/all.log
+    reference: noisy > ~/all.log 2>&1
+    alternatives: ['noisy &> ~/all.log', 'noisy 2>&1 | cat > ~/all.log']
+    wrong:
+      - {run: noisy 2>&1 > ~/all.log, expect: partial}
+    checks:
+      - {type: file_contains, path: ~/all.log, regex: 'step 1 ok', fail: "Normal output is missing from ~/all.log."}
+      - {type: file_contains, path: ~/all.log, regex: 'error: step 3 failed',
+         fail: "Error messages are missing - remember 2>&1 must come AFTER > file."}
+    hints:
+      - Redirect stdout to the file, then make stderr follow it.
+      - "> ~/all.log 2>&1 (in this order), or &> ~/all.log."
+      - noisy > ~/all.log 2>&1
+      - "First FD 1 goes to the file, then 2>&1 duplicates FD 1, so errors go there too. Reversing the order sends errors to the terminal."
+  - id: heredoc
+    title: Write a config with a here-document
+    instructions: |
+      Create **~/site.conf** with exactly these lines.  The `$PORT` must appear **literally**
+      (it is a placeholder for another program, not a shell variable):
+
+          server_name example.org
+          listen $PORT
+          root /srv/www
+    setup: rm -f {home}/site.conf
+    reference: |
+      cat > ~/site.conf <<'EOF'
+      server_name example.org
+      listen $PORT
+      root /srv/www
+      EOF
+    alternatives: ["printf '%s\\n' 'server_name example.org' 'listen $PORT' 'root /srv/www' > ~/site.conf"]
+    wrong:
+      - run: |
+          cat > ~/site.conf <<EOF
+          server_name example.org
+          listen $PORT
+          root /srv/www
+          EOF
+        expect: partial
+    checks:
+      - {type: file_exists, path: ~/site.conf}
+      - type: file_equals
+        path: ~/site.conf
+        content: "server_name example.org\nlisten $PORT\nroot /srv/www"
+        fail: "~/site.conf is not exactly as required. If the listen line is empty or wrong, $PORT was expanded by the shell - quote the here-document delimiter: <<'EOF'."
+    hints:
+      - A here-document can write several lines; one form prevents variable expansion.
+      - Quote the delimiter - <<'EOF' - to keep $PORT literal.
+      - "cat > ~/site.conf <<'EOF'   (then the three lines, then EOF)"
+      - "With an unquoted EOF the shell replaces $PORT by an empty string; with 'EOF' the text is copied exactly."
+
+quiz:
+  questions:
+    - id: q-order
+      type: mcq
+      topic: Order matters
+      prompt: Which command sends both stdout and stderr of cmd into log.txt?
+      options: ["cmd 2>&1 > log.txt", "cmd > log.txt 2>&1", "cmd > log.txt 1>&2", "cmd 2> log.txt 1>&1"]
+      answer: 1
+    - id: q-truncate
+      type: mcq
+      topic: Safety and special files
+      prompt: A running service writes to app.log, which has grown huge.  What empties it without breaking the service?
+      options: [rm app.log, ": > app.log", mv app.log /dev/null, chmod 000 app.log]
+      answer: 1
+      explanation: rm removes the name but the process keeps writing to the deleted inode, so the space is not freed.
+    - id: q-noclobber
+      type: truefalse
+      topic: Safety and special files
+      prompt: With noclobber set, `echo x > existing.txt` fails instead of overwriting.
+      answer: true
+    - id: q-heredoc
+      type: interpret
+      topic: Here-documents and here-strings
+      prompt: USER is student.  What is printed?
+      output: |
+        $ cat <<'END'
+        hello $USER
+        END
+      options: [hello student, hello $USER, hello, An error]
+      answer: 1
+    - id: q-fd
+      type: short
+      topic: File descriptors
+      prompt: Which file descriptor number is standard input?
+      answer: ["0"]
+    - id: q-practical
+      type: practical
+      title: Keep the errors only
+      topic: Order matters
+      prompt: |
+        Run `find /etc -name '*.conf'` **as student** so that the list of files is thrown
+        away and only the **error messages** (Permission denied ...) are saved in
+        **~/find-errors.txt**.
+      setup: rm -f {home}/find-errors.txt
+      reference: find /etc -name '*.conf' > /dev/null 2> ~/find-errors.txt
+      alternatives: ["find /etc -name '*.conf' 2> ~/find-errors.txt 1>/dev/null"]
+      checks:
+        - {type: file_contains, path: ~/find-errors.txt, text: Permission denied}
+        - {type: file_not_contains, path: ~/find-errors.txt, regex: '^/etc/[^:]*\.conf$', fail: "The normal output (file names) is in the file too."}
+      hints:
+        - Send stdout to the bit bucket and stderr to the file.
+        - "> /dev/null discards stdout; 2> file captures stderr."
+        - find /etc -name '*.conf' > /dev/null 2> ~/find-errors.txt
+        - "stdout is discarded and stderr saved, so the file contains only messages like 'find: /etc/ssl/private: Permission denied'."

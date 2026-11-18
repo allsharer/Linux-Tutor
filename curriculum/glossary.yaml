@@ -1,0 +1,92 @@
+# Glossary of Linux terms shown in Help > Glossary (and used by "Explain further").
+ACL: Access Control List - extra permission entries for named users and groups beyond owner/group/other. Managed with setfacl and getfacl.
+GID: Group ID - the number that identifies a group.
+LVM: Logical Volume Manager - flexible storage built from physical volumes, volume groups and logical volumes.
+PATH: The environment variable listing the directories searched for commands.
+PID: Process ID - the unique number of a running process.
+SSH: Secure Shell - encrypted remote login and command execution.
+UID: User ID - the number that identifies a user account.
+absolute path: A path that starts at the root directory /, such as /etc/hostname. It means the same thing wherever you are.
+alias: A shell shortcut that replaces one word with a longer command, e.g. alias ll='ls -alF'.
+apt: The package manager front end of Debian and Ubuntu, used to install, upgrade and remove software.
+argument: A word given to a command that says what it should work on, such as a file name.
+awk: A pattern-scanning language that splits lines into fields; ideal for column-based text and calculations.
+background job: A command started with & so that the shell prompt returns immediately while it runs.
+bash: The Bourne Again SHell - the standard command interpreter on most Linux systems.
+boot loader: The program (usually GRUB) that loads the Linux kernel when the computer starts.
+built-in: A command implemented inside the shell itself, such as cd, echo or type.
+capability: One of the separate privileges into which root's power is split, e.g. CAP_NET_BIND_SERVICE.
+cgroup: Control group - a kernel feature that groups processes to account for and limit their resources.
+chmod: Changes the permission bits (mode) of files and directories.
+chown: Changes the owner (and optionally group) of files; only root may give files away.
+container: An isolated environment that shares the host kernel but has its own filesystem, processes and network. Your laboratory is a container.
+cron: The daemon that runs scheduled commands from crontab files.
+current working directory: The directory a shell or process is "in"; relative paths start from here. Shown by pwd.
+daemon: A background service process, such as sshd or cron.
+dependency: Another package that a package needs in order to work.
+distribution: A complete operating system built around the Linux kernel, e.g. Ubuntu, Debian, Fedora.
+environment variable: A variable exported to child processes, such as PATH or HOME.
+exit status: The number a command returns when it finishes; 0 means success.
+file descriptor: 'A small number identifying an open file in a process: 0 stdin, 1 stdout, 2 stderr.'
+filesystem: The structure used to store files on a disk (ext4, xfs...), or the whole directory tree.
+firewall: Rules that decide which network packets are accepted or dropped; nftables on modern Linux.
+fstab: /etc/fstab - the table of filesystems to mount at boot.
+glob: A wildcard pattern such as *.txt that the shell expands into matching file names.
+grep: Prints lines that match a pattern.
+group: A named set of users that can share file access.
+hard link: An additional directory entry (name) for the same inode.
+here-document: A way to feed several lines of text to a command's standard input with <<EOF ... EOF.
+home directory: A user's personal directory, e.g. /home/student; abbreviated ~.
+hostname: The name of the computer.
+init system: The first process (PID 1) that starts and supervises all other services - systemd on Ubuntu.
+initramfs: A small temporary root filesystem loaded with the kernel that prepares the real root filesystem.
+inode: The data structure holding a file's metadata and the location of its data.
+journal: The systemd logging system, read with journalctl.
+kernel: The core of the operating system that manages hardware, memory and processes.
+load average: The average number of processes running or waiting for the CPU over 1, 5 and 15 minutes.
+loopback: The virtual network interface lo (127.0.0.1) through which a machine talks to itself.
+man page: A manual page, displayed with the man command.
+module: A piece of kernel code (usually a driver) that can be loaded and unloaded at run time.
+mount: To attach a filesystem to a directory (the mount point) in the directory tree.
+namespace: A kernel feature that gives processes their own isolated view of something (network, mounts, PIDs, users).
+nice value: A process's scheduling niceness from -20 (high priority) to 19 (low priority).
+octal mode: A permission mode written as digits, such as 755 or 640 (r=4, w=2, x=1).
+option: A word starting with - or -- that changes how a command behaves, such as -l.
+package: An archive containing software plus metadata used by a package manager.
+partition: A section of a disk with its own filesystem or purpose.
+permissions: The read, write and execute rights for a file's owner, group and others.
+pipe: The | operator that sends one command's standard output to the next command's standard input.
+port: A number identifying a network service on a host, such as 22 for SSH.
+process: A running instance of a program.
+prompt: The text the shell prints when it is ready for a command, e.g. student@linuxlab:~$.
+redirection: Sending a command's input or output to or from a file with <, >, >> or 2>.
+regular expression: A pattern language for matching text, used by grep, sed and awk.
+relative path: A path that does not start with /; it is interpreted from the current directory.
+repository: A server or directory that provides packages and their index.
+root: The superuser (UID 0), or the top directory / of the filesystem.
+rsync: A tool that copies and synchronises files efficiently, transferring only differences.
+sed: The stream editor, used for substitutions and line edits in text.
+service: A program that runs in the background to provide a function, usually managed by systemd.
+setgid: A permission bit; on a directory it makes new files inherit the directory's group.
+setuid: A permission bit that makes a program run with the privileges of its owner.
+shebang: 'The first line of a script, such as #!/bin/bash, naming the interpreter.'
+shell: The program that reads and runs your commands, such as bash.
+signal: A notification sent to a process, such as SIGTERM (terminate) or SIGKILL (kill).
+standard error: Stream 2, where programs write error messages.
+standard input: Stream 0, where programs read input (the keyboard by default).
+standard output: Stream 1, where programs write normal output.
+sticky bit: A permission bit on a directory that lets users delete only their own files (as on /tmp).
+sudo: Runs a single command with root privileges after checking the sudoers rules.
+swap: Disk space used as overflow when physical memory is full.
+symbolic link: A special file that points to another path; it breaks if the target is removed.
+sysctl: The tool for reading and changing kernel parameters under /proc/sys.
+systemd: The init system and service manager of most modern Linux distributions.
+tab completion: Pressing Tab to let the shell complete command names and paths.
+tar: The tape archiver - bundles files into an archive, often compressed (.tar.gz).
+target: A systemd unit that groups other units into a system state, such as multi-user.target.
+terminal: The window (or device) that displays text and sends your keystrokes to the shell.
+timer: A systemd unit that activates a service on a schedule.
+umask: The mask that removes permission bits from newly created files and directories.
+unit: 'Any object systemd manages: services, sockets, timers, mounts, targets...'
+user: An account on the system, identified by a name and a UID.
+wildcard: A character such as * or ? that matches file names in a glob pattern.

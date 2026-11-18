@@ -1,0 +1,206 @@
+id: b18-text-processing
+level: beginner
+module: working
+title: Basic text processing
+duration: 30
+objectives:
+  - Search text with grep
+  - Sort and de-duplicate lines with sort and uniq
+  - Cut fields out of structured text with cut
+  - Count with wc and translate characters with tr
+
+sections:
+  - title: Text is the universal format
+    content: |
+      Configuration files, logs, command output and CSV data are all plain **text**,
+      organised in **lines**.  A handful of tools that work on lines let you answer
+      questions such as "which IP address appears most often in this log?" in a
+      single command line.
+  - title: Searching with grep
+    content: |
+      `grep PATTERN FILE` prints the lines that contain PATTERN.
+
+      | Option | Effect |
+      |---|---|
+      | `-i` | ignore case |
+      | `-v` | invert: lines that do **not** match |
+      | `-c` | count matching lines |
+      | `-n` | show line numbers |
+      | `-r` | search recursively in a directory |
+      | `-w` | whole words only |
+
+      ```
+      $ grep -i error /var/log/syslog
+      $ grep -v '^#' /etc/ssh/sshd_config    # hide comment lines
+      $ grep -rn "PermitRootLogin" /etc/ssh/
+      ```
+
+      `^` means "start of line" and `$` "end of line" - the beginning of *regular
+      expressions*, which you will study properly later.
+    examples:
+      - command: grep -n student /etc/passwd /etc/group
+        explanation: Lines mentioning student, with file names and line numbers.
+      - command: grep -c '' /etc/services
+        explanation: Count all lines (every line matches the empty pattern).
+  - title: sort and uniq
+    content: |
+      `sort` orders lines.  `-n` sorts numerically, `-r` reverses, `-k2` sorts by the
+      second field, `-t:` sets the field separator.
+
+      `uniq` removes **adjacent** duplicate lines - so you almost always sort first.
+      `uniq -c` counts how many times each line occurs.
+
+      The classic "top N" pipeline:
+
+      ```
+      $ cut -d' ' -f1 access.log | sort | uniq -c | sort -rn | head -3
+          120 10.0.0.5
+           87 10.0.0.9
+           12 192.168.1.20
+      ```
+  - title: cut, tr and wc
+    content: |
+      `cut` extracts columns:
+
+      * `cut -d: -f1 /etc/passwd` - field 1, fields separated by `:`
+      * `cut -d, -f2,3 data.csv` - fields 2 and 3 of a CSV
+      * `cut -c1-10 file` - characters 1 to 10
+
+      `tr` translates or deletes characters (it only reads stdin):
+
+      * `tr a-z A-Z` - upper-case everything
+      * `tr -d '\r'` - delete carriage returns from Windows text
+      * `tr -s ' '` - squeeze repeated spaces
+
+      `wc` counts: `-l` lines, `-w` words, `-c` bytes.
+    examples:
+      - command: "cut -d: -f1,7 /etc/passwd | head"
+        explanation: User names and shells.
+      - command: echo "hello world" | tr a-z A-Z
+        explanation: Convert to upper case.
+
+exercises:
+  - id: grep-errors
+    title: Find the errors
+    instructions: |
+      **/var/log/app.log** contains messages of level INFO, WARNING and ERROR.  Create
+      **~/errors.txt** containing **only the ERROR lines**, in their original order.
+    setup: |
+      cat > /var/log/app.log <<'EOF'
+      2024-03-01 10:00:01 INFO service started
+      2024-03-01 10:00:05 WARNING disk 80% full
+      2024-03-01 10:01:17 ERROR cannot connect to database
+      2024-03-01 10:01:20 INFO retrying
+      2024-03-01 10:01:25 ERROR database timeout
+      2024-03-01 10:02:00 INFO connected
+      2024-03-01 10:05:42 ERROR payment gateway returned 503
+      EOF
+      chmod 644 /var/log/app.log; rm -f {home}/errors.txt
+    reference: grep ERROR /var/log/app.log > ~/errors.txt
+    alternatives: ["grep -w ERROR /var/log/app.log > ~/errors.txt", "awk '/ERROR/' /var/log/app.log > ~/errors.txt"]
+    checks:
+      - {type: file_matches_command, path: ~/errors.txt, command: "grep ERROR /var/log/app.log"}
+    hints:
+      - Select lines containing one word.
+      - grep prints matching lines; > saves them.
+      - grep ERROR /var/log/app.log > ~/errors.txt
+      - "grep ERROR keeps the three ERROR lines in order; > writes them to ~/errors.txt."
+  - id: top-visitor
+    title: Who visits most?
+    instructions: |
+      **/var/log/access.log** is a web server log; the first field of each line is the
+      visitor's IP address.  Which IP address appears **most often**?
+    answer_prompt: "IP address:"
+    setup: |
+      : > /var/log/access.log
+      for i in $(seq 1 7); do echo "10.0.0.5 - - [01/Mar/2024] \"GET /index.html\" 200" >> /var/log/access.log; done
+      for i in $(seq 1 12); do echo "192.168.1.20 - - [01/Mar/2024] \"GET /about.html\" 200" >> /var/log/access.log; done
+      for i in $(seq 1 4); do echo "10.0.0.9 - - [01/Mar/2024] \"GET /login\" 302" >> /var/log/access.log; done
+      sort -R /var/log/access.log -o /var/log/access.log; chmod 644 /var/log/access.log
+    reference: cut -d' ' -f1 /var/log/access.log | sort | uniq -c | sort -rn | head -1
+    test_answer: 192.168.1.20
+    checks:
+      - {type: answer, command: "cut -d' ' -f1 /var/log/access.log | sort | uniq -c | sort -rn | head -1 | awk '{print $2}'"}
+    hints:
+      - Extract the first field, then count how often each value occurs.
+      - cut -d' ' -f1 gets the IP; sort | uniq -c counts duplicates; sort -rn puts the biggest count first.
+      - cut -d' ' -f1 /var/log/access.log | sort | uniq -c | sort -rn
+      - "The pipeline prints counts with IPs: 12 192.168.1.20 is at the top."
+  - id: upper
+    title: Shout!
+    instructions: |
+      Create **~/LOUD.txt** containing the content of **~/quiet.txt** converted to
+      **upper case**.
+    setup: |
+      printf 'please be quiet\nthe library is open\n' > {home}/quiet.txt; chown student: {home}/quiet.txt; rm -f {home}/LOUD.txt
+    reference: tr a-z A-Z < ~/quiet.txt > ~/LOUD.txt
+    alternatives: ["cat ~/quiet.txt | tr '[:lower:]' '[:upper:]' > ~/LOUD.txt", "awk '{print toupper($0)}' ~/quiet.txt > ~/LOUD.txt"]
+    checks:
+      - {type: file_equals, path: ~/LOUD.txt, content: "PLEASE BE QUIET\nTHE LIBRARY IS OPEN"}
+    hints:
+      - One tool translates characters from one set into another.
+      - tr reads standard input - feed it the file with < or a pipe.
+      - tr a-z A-Z < ~/quiet.txt > ~/LOUD.txt
+      - "tr a-z A-Z maps every lower-case letter to its capital; < supplies the input; > saves the output."
+
+quiz:
+  questions:
+    - id: q-grep-v
+      type: mcq
+      topic: Searching with grep
+      prompt: Which grep option prints the lines that do NOT match?
+      options: [-n, -v, -c, -i]
+      answer: 1
+    - id: q-uniq
+      type: troubleshoot
+      topic: sort and uniq
+      prompt: "`uniq names.txt` still shows duplicates.  Why?"
+      options:
+        - uniq only removes adjacent duplicates - sort the input first
+        - uniq needs the -d option
+        - The file is too large
+        - uniq only works on numbers
+      answer: 0
+    - id: q-cut
+      type: interpret
+      topic: cut, tr and wc
+      prompt: What does this print?
+      output: "$ echo 'alice:x:1001:1001::/home/alice:/bin/bash' | cut -d: -f6"
+      options: [alice, /home/alice, /bin/bash, "1001"]
+      answer: 1
+    - id: q-wc
+      type: short
+      topic: cut, tr and wc
+      prompt: Which wc option counts words?
+      answer: ["-w", "--words"]
+    - id: q-tr
+      type: truefalse
+      topic: cut, tr and wc
+      prompt: tr can be given a file name as an argument, like grep.
+      answer: false
+      explanation: tr only reads standard input - use < or a pipe.
+    - id: q-count
+      type: mcq
+      topic: Searching with grep
+      prompt: Which command counts the lines in syslog that contain "fail", in any capitalisation?
+      options: [grep fail /var/log/syslog, grep -ic fail /var/log/syslog, grep -v fail /var/log/syslog, wc fail /var/log/syslog]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Unique sorted list
+      topic: sort and uniq
+      prompt: |
+        **~/fruit.txt** lists fruit, one per line, with many repeats.  Create
+        **~/fruit-unique.txt** containing each fruit **once**, in alphabetical order.
+      setup: |
+        printf 'pear\napple\nkiwi\napple\npear\nbanana\nkiwi\napple\n' > {home}/fruit.txt
+        chown student: {home}/fruit.txt; rm -f {home}/fruit-unique.txt
+      reference: sort ~/fruit.txt | uniq > ~/fruit-unique.txt
+      alternatives: ['sort -u ~/fruit.txt > ~/fruit-unique.txt']
+      checks:
+        - {type: file_equals, path: ~/fruit-unique.txt, content: "apple\nbanana\nkiwi\npear"}
+      hints:
+        - Sort first, then remove duplicates.
+        - sort | uniq, or sort -u which does both.
+        - sort ~/fruit.txt | uniq > ~/fruit-unique.txt
+        - "sort groups identical lines together so uniq can collapse them; sort -u is a shortcut."

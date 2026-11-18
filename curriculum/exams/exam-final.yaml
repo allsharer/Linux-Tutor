@@ -1,0 +1,118 @@
+id: exam-final
+title: Final Examination
+level: null                  # covers the whole course
+sample_from_lessons: 20
+passing_score: null
+description: |
+  The **final examination** spans the entire course - Beginner, Intermediate and Advanced.
+  It ends with a set of practical administration tasks on a server that "a colleague
+  handed over".  Work methodically: investigate, plan, act, verify.
+
+  Pass it and you have demonstrated the skills to work independently as a Linux
+  administrator.
+
+questions:
+  - id: f-method
+    type: mcq
+    topic: i23-troubleshooting
+    prompt: A production service is down.  Which sequence is professional?
+    options:
+      - Reboot, then look at the logs
+      - Gather information (status, logs, recent changes), form a hypothesis, test, fix one thing, verify, document
+      - Reinstall the package immediately
+      - Change several config values until it works
+    answer: 1
+  - id: f-security
+    type: multi
+    topic: a20-hardening
+    prompt: Which of these reduce the risk of an SSH brute-force compromise?
+    options: [Key-only authentication, PermitRootLogin no, chmod 777 ~/.ssh, fail2ban or rate limiting, Running sshd as a normal user]
+    answer: [0, 1, 3]
+
+  - id: f-p1
+    type: practical
+    title: Handover - fix the web service
+    topic: a21-troubleshooting
+    prompt: |
+      You inherit a server.  **handover-web.service** should serve **/srv/handover/www** on
+      port **8099** as the user **webuser**, but it is broken.  Make it work (active, enabled,
+      `curl http://127.0.0.1:8099/` returns the page).  Do not run it as root and do not edit
+      **/usr/local/bin/handover-web**.
+    setup: |
+      id webuser >/dev/null 2>&1 || useradd -r -s /usr/sbin/nologin webuser
+      cat > /usr/local/bin/handover-web <<'EOF'
+      #!/bin/bash
+      cd /srv/handover/www || { echo "cannot enter /srv/handover/www" >&2; exit 1; }
+      [ -r index.html ] || { echo "index.html not readable" >&2; exit 1; }
+      exec python3 -m http.server 8099 --bind 127.0.0.1
+      EOF
+      chmod 755 /usr/local/bin/handover-web; md5sum /usr/local/bin/handover-web > /root/.ho.md5
+      rm -rf /srv/handover; mkdir -p /srv/handover/www; echo "<h1>Handover OK</h1>" > /srv/handover/www/index.html
+      chmod 700 /srv/handover; chmod 600 /srv/handover/www/index.html
+      printf '[Unit]\nDescription=Handover web\n[Service]\nUser=webuser\nExecStart=/usr/local/bin/handover-web\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/handover-web.service
+      systemctl daemon-reload; systemctl disable handover-web 2>/dev/null; systemctl stop handover-web 2>/dev/null
+      systemctl reset-failed handover-web 2>/dev/null; systemctl start handover-web 2>/dev/null; systemctl reset-failed handover-web 2>/dev/null; true
+    cleanup: systemctl disable --now handover-web 2>/dev/null || true
+    reference: |
+      sudo chmod 755 /srv/handover && sudo chmod 644 /srv/handover/www/index.html
+      sudo systemctl enable handover-web && sudo systemctl restart handover-web; sleep 1
+    alternatives:
+      - |
+        sudo chown -R webuser: /srv/handover
+        sudo systemctl enable handover-web && sudo systemctl restart handover-web; sleep 1
+    checks:
+      - {type: service_active, name: handover-web}
+      - {type: service_enabled, name: handover-web}
+      - {type: command, run: "sleep 1; curl -s -m 3 http://127.0.0.1:8099/", stdout_contains: Handover OK}
+      - {type: command, run: "systemctl show -p User --value handover-web", stdout_equals: webuser}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.ho.md5", exit_code: 0, fail: "The program was modified."}
+      - {type: mode, path: /srv/handover/www/index.html, lacks: o+w, fail: "The page was made world-writable."}
+    hints: [Read the service's journal - it tells you which path fails., "Directory and file permissions block webuser.", "Give webuser access (chmod 755 the directory, 644 the page, or chown to webuser).", "Also enable the service so it starts at boot."]
+  - id: f-p2
+    type: practical
+    title: Handover - accounts review
+    topic: a07-user-admin
+    prompt: |
+      The previous administrator left accounts behind:
+
+      * **olduser** (left the company): delete the account **and its home directory**;
+      * **contractor**: keep, but its account must **expire** - lock its password;
+      * add **student** to the group **adm** if not already (it should stay in all its other groups).
+    setup: |
+      id olduser >/dev/null 2>&1 || useradd -m olduser; id contractor >/dev/null 2>&1 || useradd -m contractor
+      echo 'contractor:Temp1234' | chpasswd; usermod -U contractor 2>/dev/null; true
+    reference: |
+      sudo userdel -r olduser
+      sudo usermod -L contractor
+      sudo usermod -aG adm student
+    checks:
+      - {type: user_absent, name: olduser}
+      - {type: not_exists, path: /home/olduser, fail: "/home/olduser still exists - use userdel -r."}
+      - {type: user_locked, name: contractor}
+      - {type: user_in_group, user: student, group: adm}
+    constraints:
+      - {type: user_in_group, user: student, group: sudo, fail: "student lost the sudo group!"}
+    hints: [userdel -r, usermod -L, usermod -aG., "Three separate commands.", "sudo userdel -r olduser; sudo usermod -L contractor", "usermod -aG adm student - never -G without -a."]
+  - id: f-p3
+    type: practical
+    title: Handover - nightly job
+    topic: a19-automation
+    prompt: |
+      Schedule **/usr/local/bin/handover-report** to run **every night at 01:30** using a
+      **systemd timer** called **handover-report.timer** (with a matching oneshot service).
+      Enable and start the timer.
+    setup: |
+      printf '#!/bin/bash\nlogger -t handover-report "report done"\n' > /usr/local/bin/handover-report; chmod 755 /usr/local/bin/handover-report
+      systemctl disable --now handover-report.timer 2>/dev/null; rm -f /etc/systemd/system/handover-report.*; systemctl daemon-reload
+    cleanup: systemctl disable --now handover-report.timer 2>/dev/null || true
+    reference: |
+      printf '[Service]\nType=oneshot\nExecStart=/usr/local/bin/handover-report\n' | sudo tee /etc/systemd/system/handover-report.service
+      printf '[Timer]\nOnCalendar=*-*-* 01:30:00\n[Install]\nWantedBy=timers.target\n' | sudo tee /etc/systemd/system/handover-report.timer
+      sudo systemctl daemon-reload && sudo systemctl enable --now handover-report.timer
+    checks:
+      - {type: service_active, name: handover-report.timer}
+      - {type: service_enabled, name: handover-report.timer}
+      - {type: command, run: "systemctl show -p TimersCalendar --value handover-report.timer", stdout_regex: '\*-\*-\* 01:30:00'}
+      - {type: command, run: "systemctl start handover-report.service && journalctl -t handover-report -n1 -o cat --no-pager", stdout_contains: report done}
+    hints: [A .service and a .timer with the same name., "OnCalendar=*-*-* 01:30:00", "Write both units, daemon-reload, enable --now the timer.", "systemctl list-timers shows the next run."]

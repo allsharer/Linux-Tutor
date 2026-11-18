@@ -1,0 +1,214 @@
+id: b12-commands
+level: beginner
+module: commands
+title: Introduction to Linux commands
+duration: 25
+objectives:
+  - Explain what happens when you type a command
+  - Distinguish programs, shell built-ins and aliases
+  - Find where a command lives with type and which
+  - Understand the PATH variable and "command not found"
+
+sections:
+  - title: What is a command?
+    content: |
+      When you type `ls` and press Enter, the shell:
+
+      1. splits the line into words (`ls`, `-l`, `/etc`);
+      2. expands special characters (`~`, `*`, `$VARIABLES`);
+      3. looks up the first word to find out *what* `ls` is;
+      4. runs it, passing the other words as **arguments**;
+      5. waits for it to finish and shows the next prompt.
+
+      Most commands are ordinary **programs** - executable files on disk.  `ls` is the
+      file `/usr/bin/ls`.  You could run it by its full path: `/usr/bin/ls`.
+  - title: Programs, built-ins and aliases
+    content: |
+      Not every command is a program.
+
+      * A **built-in** is part of the shell itself: `cd`, `echo`, `pwd`, `history`,
+        `type`.  `cd` *must* be built in - a separate program could not change the
+        shell's own directory.
+      * An **alias** is a shortcut defined in the shell.  On Ubuntu `ll` is an alias
+        for `ls -alF`.
+      * A **function** is a small shell program (you will write them later).
+
+      The built-in `type` tells you what a name is:
+
+      ```
+      $ type cd
+      cd is a shell builtin
+      $ type ls
+      ls is aliased to `ls --color=auto'
+      $ type -a ls
+      ls is aliased to `ls --color=auto'
+      ls is /usr/bin/ls
+      ```
+    examples:
+      - command: type cd
+        explanation: A shell built-in.
+      - command: type ll
+        explanation: An alias.
+      - command: which python3 ls
+        explanation: Where the programs live.
+      - command: alias
+        explanation: List all aliases defined in this shell.
+  - title: The PATH
+    content: |
+      How does the shell find `/usr/bin/ls` when you type just `ls`?  It searches the
+      directories listed in the **PATH** variable, in order, separated by colons:
+
+      ```
+      $ echo $PATH
+      /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      ```
+
+      The first match wins.  If no directory contains the program you get:
+
+      ```
+      $ sl
+      bash: sl: command not found
+      ```
+
+      That means "not in any PATH directory" - perhaps a typo, perhaps the software is
+      not installed, perhaps it lives somewhere not in PATH.
+
+      :::note
+      The current directory is **not** in PATH, for security.  To run a program in the
+      current directory you must say so explicitly: `./myscript.sh`.
+      :::
+    more: |
+      Why is "." not in PATH?  If it were, an attacker could put a malicious program
+      called `ls` in /tmp and wait for an administrator to cd there and type ls.
+      Requiring `./` means you always know exactly which file runs.
+  - title: Exit status
+    content: |
+      Every command finishes with an **exit status**: 0 means success, anything else
+      means some kind of failure.  The shell keeps the last status in `$?`:
+
+      ```
+      $ ls /etc > /dev/null
+      $ echo $?
+      0
+      $ ls /nonexistent
+      ls: cannot access '/nonexistent': No such file or directory
+      $ echo $?
+      2
+      ```
+
+      Exit statuses are how scripts decide what to do next - you will use them a lot.
+
+exercises:
+  - id: where-is
+    title: Where does a command live?
+    instructions: |
+      Find the **full path** of the program that runs when you type `passwd`.
+      Type the path into the answer box.
+    answer_prompt: "Full path:"
+    reference: type passwd
+    checks:
+      - {type: answer, command: "command -v passwd"}
+    hints:
+      - The shell searches the PATH; there are commands that show you what it finds.
+      - Use type or which.
+      - which passwd
+      - "which passwd (or type passwd) shows /usr/bin/passwd."
+  - id: builtin
+    title: Built-in or program?
+    instructions: |
+      Create the file **~/types.txt** containing the output of the `type` command for
+      both **cd** and **cat** (two lines).
+    setup: rm -f {home}/types.txt
+    reference: type cd cat > ~/types.txt
+    alternatives: ['type cd > ~/types.txt; type cat >> ~/types.txt']
+    checks:
+      - {type: file_contains, path: ~/types.txt, regex: 'cd is a shell builtin'}
+      - {type: file_contains, path: ~/types.txt, regex: 'cat is (/usr)?/bin/cat|cat is hashed'}
+    hints:
+      - type can describe several names at once and its output can be redirected.
+      - type cd cat prints two lines; > saves them.
+      - type cd cat > ~/types.txt
+      - "type cd cat > ~/types.txt records 'cd is a shell builtin' and 'cat is /usr/bin/cat'."
+  - id: exit-status
+    title: Success or failure?
+    instructions: |
+      Run the command `ls /root` as the student user.  What **exit status** does it
+      return?  Type the number.
+    answer_prompt: "Exit status:"
+    reference: ls /root; echo $?
+    test_answer: "2"
+    checks:
+      - {type: answer, command: "su student -c 'ls /root' >/dev/null 2>&1; echo $?"}
+    hints:
+      - The shell remembers the exit status of the last command in a special variable.
+      - Run the command, then echo $? straight away.
+      - "ls /root; echo $?"
+      - "ls /root fails with Permission denied and exits with 2; echo $? displays it."
+
+quiz:
+  questions:
+    - id: q-builtin
+      type: mcq
+      topic: Programs, built-ins and aliases
+      prompt: Why must cd be a shell built-in rather than a separate program?
+      options:
+        - Because it is used very often
+        - Because a separate program cannot change the current directory of the shell that started it
+        - Because only root may change directories
+        - It does not have to be; it is a program in /usr/bin
+      answer: 1
+    - id: q-path
+      type: mcq
+      topic: The PATH
+      prompt: What does "command not found" mean?
+      options:
+        - The command crashed
+        - The command exists but you lack permission
+        - No directory listed in PATH contains a program of that name (and it is not a built-in, alias or function)
+        - The file you passed to the command does not exist
+      answer: 2
+    - id: q-dot
+      type: truefalse
+      topic: The PATH
+      prompt: To run a script called deploy.sh in the current directory, typing deploy.sh is enough.
+      answer: false
+      explanation: The current directory is not in PATH - type ./deploy.sh.
+    - id: q-status
+      type: short
+      topic: Exit status
+      prompt: What exit status does a command return when it succeeds?
+      answer: ["0", "zero"]
+    - id: q-type
+      type: interpret
+      topic: Programs, built-ins and aliases
+      prompt: What does this output tell you?
+      output: |
+        $ type ll
+        ll is aliased to `ls -alF'
+      options:
+        - ll is a program in /usr/bin
+        - ll is a shortcut that runs ls -alF
+        - ll is a shell built-in
+        - ll does not exist
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Investigate a command
+      topic: The PATH
+      prompt: |
+        Write the list of directories in your **PATH**, **one per line**, into the file
+        **~/path.txt**.
+      setup: rm -f {home}/path.txt
+      reference: echo $PATH | tr ':' '\n' > ~/path.txt
+      alternatives: ["printf '%s\\n' ${PATH//:/ } > ~/path.txt"]
+      checks:
+        - {type: file_lines, path: ~/path.txt, min: 4}
+        - type: file_contains
+          path: ~/path.txt
+          regex: '^/usr/bin$'
+          fail: Each directory must be on its own line (e.g. a line containing just /usr/bin).
+      hints:
+        - PATH is one long line with directories separated by colons.
+        - The tr command translates one character into another - for example ':' into a newline.
+        - echo $PATH | tr ':' '\n' > ~/path.txt
+        - "echo $PATH prints the list; tr ':' '\\n' replaces each colon by a newline; > saves the result."

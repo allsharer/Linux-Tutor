@@ -1,0 +1,99 @@
+# Linux Tutor curriculum index.
+#
+# Levels contain modules; modules list lesson ids in teaching order.  Each id must
+# match the `id` of a YAML file in level1/, level2/ or level3/.  By default each
+# lesson requires the previous lesson of its level to be passed; a lesson file may
+# override this with an explicit `prerequisites:` list.
+title: Linux Tutor
+final_exam: exam-final
+
+levels:
+  - id: beginner
+    number: 1
+    title: Beginner
+    exam: exam-beginner
+    description: >
+      For people with little or no Linux experience.  You will learn what Linux is,
+      how to work in a terminal, how the filesystem is organised, how to manage files,
+      get help, and understand users, permissions, pipes and processes.
+    modules:
+      - id: getting-started
+        title: Getting started
+        lessons: [b01-introduction, b02-distributions, b03-desktop-and-cli, b04-terminal]
+      - id: filesystem
+        title: The filesystem
+        lessons: [b05-filesystem, b06-paths, b07-navigating, b08-directories, b09-files,
+                  b10-copy-move, b11-filenames]
+      - id: commands
+        title: Working with commands
+        lessons: [b12-commands, b13-syntax-options, b14-getting-help]
+      - id: users-security
+        title: Users and permissions
+        lessons: [b15-users-groups, b16-permissions]
+      - id: working
+        title: Putting commands to work
+        lessons: [b17-pipes-redirection, b18-text-processing, b19-processes, b20-system-info]
+
+  - id: intermediate
+    number: 2
+    title: Intermediate
+    exam: exam-intermediate
+    description: >
+      For students who know the fundamentals.  Ownership and permissions in depth,
+      links, searching, text processing, the shell environment and scripting, process
+      and job control, software, storage, networking, SSH, scheduling and logs.
+    modules:
+      - id: files
+        title: Files in depth
+        lessons: [i01-advanced-navigation, i02-ownership-permissions, i03-chmod-chown-chgrp,
+                  i04-links, i05-searching]
+      - id: text
+        title: Text and data streams
+        lessons: [i06-text-processing, i07-pipes-chaining, i08-redirection]
+      - id: shell
+        title: The shell and scripting
+        lessons: [i09-environment, i10-scripting, i11-conditionals, i12-loops-functions]
+      - id: processes
+        title: Processes and jobs
+        lessons: [i13-process-management, i14-job-control]
+      - id: software
+        title: Software
+        lessons: [i15-package-management, i16-software-install]
+      - id: storage
+        title: Storage
+        lessons: [i17-disk-usage, i18-mounting]
+      - id: network
+        title: Networking
+        lessons: [i19-networking, i20-ssh]
+      - id: operations
+        title: Operations
+        lessons: [i21-cron, i22-logs-monitoring, i23-troubleshooting]
+
+  - id: advanced
+    number: 3
+    title: Advanced
+    exam: exam-advanced
+    description: >
+      Linux administration and system operation: advanced Bash, regular expressions,
+      systemd, the boot process, user administration, ACLs and capabilities, storage
+      and LVM, network configuration, firewalls, SSH hardening, resource management,
+      the kernel, logs, backup, automation, security and troubleshooting.
+    modules:
+      - id: scripting
+        title: Advanced shell and text
+        lessons: [a01-advanced-bash, a02-functions-expansion, a03-regex, a04-advanced-text]
+      - id: system
+        title: The system
+        lessons: [a05-systemd, a06-boot, a07-user-admin, a08-acls, a09-capabilities]
+      - id: storage
+        title: Storage administration
+        lessons: [a10-partitioning, a11-lvm]
+      - id: network
+        title: Network administration
+        lessons: [a12-network-config, a13-firewall, a14-ssh-admin]
+      - id: performance
+        title: Resources, kernel and logs
+        lessons: [a15-priorities-resources, a16-kernel-modules, a17-journalctl]
+      - id: operations
+        title: Operations and security
+        lessons: [a18-backup, a19-automation, a20-hardening, a21-troubleshooting, a22-scenarios]

@@ -1,0 +1,784 @@
+# PROJECT: LINUX TUTOR
+## An Interactive, Hands-on Linux Learning and Assessment Environment
+
+### 1. PROJECT OBJECTIVE
+
+Develop a fully interactive Linux training application inspired by the DOS Tutor educational software of the 1980s and 1990s.
+
+The application should teach users how to use Linux through a combination of:
+- Structured lessons and lectures.
+- An interactive Linux terminal (its own shell).
+- Practical, hands-on exercises.
+- Real-time assessment of student activities.
+- End-of-lesson examinations.
+- Progress tracking and competency evaluation.
+
+The objective is not simply to teach students which commands to type. It is to develop a genuine understanding of Linux, its operating environment, commands, utilities, filesystem, permissions, processes and administration.
+
+The application should recreate the engaging, guided learning experience of DOS Tutor while providing a modern graphical interface and a functional Linux learning environment.
+
+### 2. THREE LEARNING LEVELS
+
+The application must provide three distinct learning levels.
+
+**LEVEL 1: BEGINNER**
+
+Designed for individuals with little or no Linux experience.
+
+Topics should include:
+
+1. Introduction to Linux.
+2. Understanding Linux distributions.
+3. The Linux desktop and command-line interface.
+4. Opening and using a terminal.
+5. Understanding the Linux filesystem.
+6. Absolute and relative paths.
+7. Navigating directories.
+8. Creating and removing directories.
+9. Creating, viewing and editing files.
+10. Copying, moving and renaming files.
+11. Understanding filenames and extensions.
+12. Introduction to Linux commands.
+13. Understanding command syntax and options.
+14. Getting help using man, info and --help.
+15. Understanding users and groups.
+16. Basic file permissions.
+17. Introduction to pipes and redirection.
+18. Basic text processing.
+19. Understanding processes.
+20. Basic system information.
+
+**LEVEL 2: INTERMEDIATE**
+
+Designed for students who understand the Linux fundamentals.
+
+Topics should include:
+
+1. Advanced filesystem navigation.
+2. File ownership and permissions.
+3. chmod, chown and chgrp.
+4. Symbolic and hard links.
+5. Searching files using find, locate and grep.
+6. Text processing using sed, awk, cut, sort and other utilities.
+7. Pipes and command chaining.
+8. Input/output redirection.
+9. Environment variables.
+10. Shell scripting fundamentals.
+11. Conditional statements.
+12. Loops and functions.
+13. Process management.
+14. Job control.
+15. Package management.
+16. Software installation and removal.
+17. Disk usage and storage management.
+18. Mounting and unmounting filesystems.
+19. Networking fundamentals.
+20. SSH fundamentals.
+21. Scheduling tasks using cron.
+22. Logs and system monitoring.
+23. Basic troubleshooting.
+
+**LEVEL 3: ADVANCED**
+
+Designed for students seeking a deeper understanding of Linux administration and system operation.
+
+Topics should include:
+
+1. Advanced Bash scripting.
+2. Shell functions and advanced parameter expansion.
+3. Regular expressions.
+4. Advanced text processing.
+5. Systemd and service management.
+6. Boot processes and system initialisation.
+7. User and group administration.
+8. Advanced permissions and ACLs.
+9. Linux capabilities.
+10. Disk partitioning and filesystem management.
+11. LVM and storage administration.
+12. Networking configuration and troubleshooting.
+13. Firewall management.
+14. SSH administration and security.
+15. Process priorities and resource management.
+16. Kernel fundamentals and modules.
+17. System logs and journalctl.
+18. Backup and recovery.
+19. Automation and task scheduling.
+20. Security hardening.
+21. Troubleshooting complex system problems.
+22. System administration scenarios.
+
+Each level must contain multiple lessons arranged in a logical learning sequence.
+
+The curriculum should be modular so additional lessons and topics can be introduced without rewriting the application.
+
+### 3. APPLICATION INTERFACE
+
+Create an intuitive graphical interface with the following primary areas:
+
+**A. Lecture Screen**
+
+This is the instructional area.
+
+It should display:
+- Lesson title and number.
+- Learning objectives.
+- Explanations of concepts.
+- Examples of Linux commands.
+- Explanations of command output.
+- Illustrations and diagrams where appropriate.
+- Important notes and warnings.
+- Practical exercises.
+
+Lessons should be divided into manageable sections.
+
+Students should be able to:
+- Move forward and backwards through lesson material.
+- Pause and resume lessons.
+- Review previously covered material.
+- Request additional explanations.
+- Access a glossary of Linux terminology.
+
+Do not overwhelm students with too much information on a single screen.
+
+**B. Interactive Terminal**
+
+Provide a terminal embedded within the application.
+
+This must be a genuine, functioning Linux shell, not a simulated terminal that merely displays predefined responses.
+
+The terminal should support:
+- Command entry.
+- Command execution.
+- Command output.
+- Command history.
+- Tab completion.
+- Keyboard shortcuts.
+- Multiple terminal sessions where practical.
+- Pipes and redirection.
+- Shell variables.
+- Shell scripting.
+- Appropriate shell error messages.
+
+Use Bash as the initial default shell.
+
+The terminal must be integrated with the teaching environment so the application can observe and assess practical exercises.
+
+**C. Lesson Navigation**
+
+Provide a lesson navigation panel displaying:
+- Current learning level.
+- Available modules.
+- Completed lessons.
+- Lessons in progress.
+- Locked lessons.
+- Assessment results.
+
+Students should be able to see their overall progress.
+
+**D. Assessment Screen**
+
+Provide an assessment interface for exercises, quizzes and examinations.
+
+Display:
+- Exercise instructions.
+- Task requirements.
+- Hints when permitted.
+- Completion status.
+- Assessment feedback.
+- Explanation of mistakes.
+
+### 4. THE LINUX EXECUTION ENVIRONMENT
+
+This is one of the most important components of the project.
+
+The application must provide its own isolated Linux learning environment.
+
+Students must not accidentally damage their host operating system while learning.
+
+Investigate and implement an appropriate isolation mechanism, preferably using a rootless Podman container or another suitable container technology.
+
+Requirements:
+
+1. The learning environment must be isolated from the host.
+2. The student must have an independent filesystem.
+3. The student must have a separate home directory.
+4. The student must be able to create, modify and delete files within the learning environment.
+5. The student must be able to execute permitted administrative exercises.
+6. The environment must support the commands required by the curriculum.
+7. Students must not have unrestricted access to the host filesystem.
+8. Network access should be configurable and disabled by default where practical.
+9. The environment must be resettable.
+10. Student progress and assessment records must survive environment resets.
+
+Provide a safe mechanism for teaching privileged commands. Where sudo or root access is required, use a disposable, isolated environment with appropriate restrictions.
+
+The application should support a clean reset of the student's laboratory environment without deleting lesson progress.
+
+### 5. INTELLIGENT EXERCISE EVALUATION
+
+The assessment engine must evaluate whether the student has achieved the requested outcome.
+
+It must NOT rely on a particular command, command sequence or method of execution.
+
+Linux frequently offers several different ways to accomplish the same task.
+
+For example:
+
+Task: Create a directory called `projects` inside the student's home directory.
+
+Possible solutions include:
+
+`mkdir ~/projects`
+
+`cd ~ && mkdir projects`
+
+`mkdir "$HOME/projects"`
+
+All three should be recognised as correct.
+
+The assessment engine should therefore evaluate the resulting system state rather than simply compare the student's command against an expected command.
+
+Examples of evaluation:
+
+- Does the requested directory exist?
+- Was the file created in the correct location?
+- Does the file contain the required information?
+- Are the requested permissions correct?
+- Does the file have the correct ownership?
+- Is the process running?
+- Has the service started successfully?
+- Does the script produce the required result?
+- Was the requested task completed without prohibited side effects?
+
+Implement an outcome-based assessment system.
+
+The assessment engine should use:
+- Filesystem inspection.
+- File content verification.
+- Permission and ownership inspection.
+- Process inspection.
+- Service status checks.
+- Command output validation where appropriate.
+- Script execution and exit-status checks.
+- Other objective verification methods relevant to the exercise.
+
+Where multiple valid solutions exist, accept all solutions that satisfy the requirements.
+
+Do not reward a student merely for entering a command that looks correct. Verify that the intended result was actually achieved.
+
+Where appropriate, evaluate both the final state and whether the student respected the exercise's safety constraints.
+
+### 6. INTELLIGENT FEEDBACK AND TEACHING
+
+When a student makes a mistake, the application should explain what went wrong.
+
+Feedback should be educational rather than simply reporting that an answer is incorrect.
+
+For example:
+
+Instead of:
+
+"Incorrect. Try again."
+
+Use:
+
+"The directory was created, but it was created in /tmp instead of your home directory. Review the section on absolute and relative paths."
+
+The system should distinguish between:
+- Completely incorrect attempts.
+- Partially completed tasks.
+- Correct results achieved through an alternative method.
+- Correct results achieved with unintended side effects.
+- Tasks that cannot yet be verified.
+
+Students should be allowed to retry exercises.
+
+Hints should be available in progressive stages:
+
+1. A conceptual hint.
+2. A hint identifying the relevant Linux functionality.
+3. A command example.
+4. A complete explanation.
+
+Using a hint should not automatically invalidate the exercise, but the assessment system should record the level of assistance required.
+
+### 7. END-OF-LESSON ASSESSMENTS
+
+Every lesson must conclude with an assessment.
+
+The assessment should determine whether the student has genuinely understood the lesson.
+
+Include a mixture of:
+
+- Multiple-choice questions.
+- True or false questions.
+- Command interpretation.
+- Practical terminal exercises.
+- Troubleshooting scenarios.
+- Short-answer questions where appropriate.
+
+Practical exercises should carry significant weight.
+
+The assessment should evaluate understanding, not simply memorisation.
+
+Provide:
+- A final score.
+- Correct and incorrect answers.
+- Explanations for incorrect answers.
+- Areas requiring revision.
+- A pass or retry decision.
+
+Set a default passing score of 80%, configurable by the instructor.
+
+A student who fails should be encouraged to review the relevant material and attempt the assessment again.
+
+Do not unlock dependent lessons until the required competency has been demonstrated.
+
+### 8. LEVEL COMPLETION EXAMINATIONS
+
+In addition to individual lesson assessments, each of the three learning levels must conclude with a comprehensive examination.
+
+The examination should include material from all lessons in that level.
+
+It should combine theoretical questions and practical Linux tasks.
+
+Students should demonstrate that they can apply their knowledge to unfamiliar situations rather than simply repeat previously demonstrated commands.
+
+Passing a level examination should unlock the next level.
+
+Provide a final overall examination after completing the Advanced level.
+
+### 9. STUDENT PROGRESS AND RECORD KEEPING
+
+Maintain a local student profile.
+
+Record:
+- Student name or username.
+- Current learning level.
+- Completed lessons.
+- Lesson assessment scores.
+- Number of attempts.
+- Hints used.
+- Examination results.
+- Overall competency.
+- Date of completion.
+
+Provide a progress dashboard showing:
+- Percentage of curriculum completed.
+- Current learning level.
+- Lessons completed.
+- Areas requiring improvement.
+- Recent assessment results.
+- Overall performance.
+
+Progress data must persist between application sessions.
+
+Support multiple student profiles if practical.
+
+Provide export and backup functionality.
+
+### 10. TEACHING PHILOSOPHY
+
+The software must follow these principles:
+
+1. Teach concepts before expecting students to use commands.
+2. Encourage experimentation.
+3. Allow students to discover solutions independently.
+4. Accept different valid approaches to solving problems.
+5. Explain mistakes constructively.
+6. Gradually increase exercise difficulty.
+7. Reinforce previous learning.
+8. Use realistic practical scenarios.
+9. Assess understanding rather than memorisation.
+10. Encourage confidence and independent problem-solving.
+
+Lessons should be conversational, engaging and easy to understand.
+
+Avoid presenting Linux as a collection of commands to memorise.
+
+Explain what commands do, why they are useful, when they should be used and what alternatives exist.
+
+### 11. TECHNICAL AND ARCHITECTURAL REQUIREMENTS
+
+Before implementation, assess suitable technologies for the project.
+
+The application should be designed primarily for Ubuntu Linux.
+
+Prefer an architecture that allows the application to be extended to other Linux distributions in the future.
+
+Consider:
+- Python for application logic and assessment.
+- PySide6 or an appropriate modern web-based interface for the graphical application.
+- Bash for the interactive shell.
+- Podman for isolated execution.
+- SQLite for student records and progress.
+- A modular lesson-definition format such as YAML or JSON.
+
+These are suggested technologies, not mandatory choices. Select the most suitable architecture and document the reasons for the selection.
+
+Keep the following components separate:
+
+1. User interface.
+2. Curriculum and lesson management.
+3. Terminal and shell management.
+4. Linux execution environment.
+5. Assessment engine.
+6. Student progress management.
+7. Examination engine.
+8. Configuration and settings.
+
+The assessment engine must be extensible so that new assessment methods can be added without changing existing lessons.
+
+### 12. CURRICULUM MANAGEMENT
+
+Lessons must not be hard-coded into the main application.
+
+Develop a structured lesson format that allows new lessons to be created and added.
+
+Each lesson should define:
+
+- Lesson ID.
+- Learning level.
+- Module.
+- Lesson title.
+- Learning objectives.
+- Lecture content.
+- Examples.
+- Practical exercises.
+- Expected outcomes.
+- Assessment criteria.
+- Quiz questions.
+- Passing requirements.
+- References and further reading.
+
+Provide an architecture that could eventually support an instructor or curriculum editor interface.
+
+### 13. SECURITY AND SAFETY
+
+Because students will execute Linux commands, security is essential.
+
+The application must not execute student commands directly on the host operating system.
+
+Use a properly isolated execution environment.
+
+Implement appropriate restrictions on:
+- Host filesystem access.
+- Container privileges.
+- Device access.
+- Network access.
+- Resource consumption.
+- Dangerous commands.
+- Container escape risks.
+
+Do not assume that a rootless container alone provides perfect security.
+
+Document the isolation model, its limitations and any additional safeguards.
+
+Provide a safe reset mechanism for restoring the laboratory environment.
+
+### 14. USER EXPERIENCE AND DESIGN
+
+The application should combine the educational simplicity of classic DOS Tutor software with a clean, modern interface.
+
+Suggested layout:
+
+- Left panel: Course and lesson navigation.
+- Main upper panel: Lecture and instructional content.
+- Main lower panel: Interactive terminal.
+- Right panel or collapsible area: Exercise instructions, hints and assessment feedback.
+
+Allow the student to resize the different panels.
+
+Provide a dark and light theme.
+
+Use readable fonts and support font-size adjustments.
+
+The interface should be straightforward enough for someone who has never used Linux.
+
+Do not make the application unnecessarily complicated or cluttered.
+
+### 15. DEVELOPMENT AND TESTING
+
+Develop the project in manageable stages.
+
+**Phase 1: Architecture and design**
+- Analyse requirements.
+- Select the technology stack.
+- Design the application architecture.
+- Design the execution-isolation model.
+- Produce the initial project structure.
+- Document architectural decisions.
+
+**Phase 2: Core application**
+- Build the graphical interface.
+- Implement student profiles.
+- Implement lesson navigation.
+- Implement the lecture screen.
+- Implement persistent progress storage.
+
+**Phase 3: Interactive Linux laboratory**
+- Implement the isolated Linux environment.
+- Integrate the Bash terminal.
+- Implement terminal input and output.
+- Implement reset and recovery facilities.
+
+**Phase 4: Assessment engine**
+- Implement outcome-based task verification.
+- Implement practical exercises.
+- Implement hints and feedback.
+- Implement quizzes and lesson examinations.
+
+**Phase 5: Curriculum**
+- Create the complete Beginner curriculum.
+- Create the Intermediate curriculum.
+- Create the Advanced curriculum.
+- Add level examinations.
+
+**Phase 6: Testing and refinement**
+- Test every lesson.
+- Test alternative valid command approaches.
+- Test incorrect and partially completed tasks.
+- Test isolation and security.
+- Test progress persistence.
+- Test application recovery.
+- Test usability.
+
+### 15A. SANDBOXED DEVELOPMENT AND PRODUCTION DEPLOYMENT
+
+**IMPORTANT: DEVELOPMENT ENVIRONMENT**
+
+The application is being developed inside a sandboxed Linux machine. This machine is intended exclusively for development and testing. It is NOT the eventual production environment.
+
+The development agent must understand this distinction throughout the project.
+
+The ultimate objective is to produce a fully functional application that can be transferred from the development sandbox and installed on my actual Ubuntu Linux system without having to redesign, rewrite or substantially modify the application.
+
+#### A. Development Environment Independence
+
+1. Do not assume that the sandbox has the same hardware, filesystem layout, installed software, permissions or configuration as the eventual production machine.
+2. Do not hard-code development-specific paths, usernames, hostnames or directory locations.
+3. Do not make the application dependent on services or resources that exist only in the development sandbox.
+4. Do not assume that development container images, Podman volumes or other sandbox resources will be available on the production machine.
+5. Keep all application dependencies explicitly documented.
+6. Use portable configuration files and environment-independent paths.
+7. Keep application data, configuration, logs and temporary files in appropriate locations according to the Linux filesystem hierarchy.
+
+#### B. Easy Installation on a Real Ubuntu System
+
+Design the application so that it can eventually be installed on a fresh, supported Ubuntu installation.
+
+Provide a straightforward installation method.
+
+Preferably support:
+
+- A Debian `.deb` installation package.
+- An automated installation script.
+- A documented manual installation procedure for developers.
+
+Where practical, also consider AppImage or Flatpak distribution.
+
+The installation process should:
+
+1. Check for required dependencies.
+2. Identify missing dependencies.
+3. Install or explain how to install required components.
+4. Configure the application's execution environment.
+5. Set up the isolated Linux laboratory.
+6. Create the necessary application directories.
+7. Configure permissions appropriately.
+8. Provide desktop application integration and a menu launcher.
+9. Verify that the installation was successful.
+10. Provide a straightforward uninstall procedure.
+
+Do not require the user to manually reconstruct the development environment.
+
+#### C. Separate Application Installation from Student Data
+
+Keep the following separate:
+
+- Application binaries and source code.
+- Application configuration.
+- Student profiles and progress.
+- Lesson and curriculum content.
+- Laboratory/container images.
+- Logs and temporary files.
+
+Use suitable Linux locations, such as:
+
+- `/usr` or `/opt` for installed application files, depending on packaging design.
+- `/etc` for system-wide configuration where appropriate.
+- `~/.config/` for user-specific configuration.
+- `~/.local/share/` for user-specific application data.
+- `~/.cache/` for regenerable cache data.
+- `/var/log/` only where system-wide logging is necessary.
+
+Avoid storing important student records inside the application installation directory.
+
+An application upgrade or reinstallation must not erase student profiles, lesson progress or examination results.
+
+#### D. Independent Laboratory Deployment
+
+The Linux laboratory must be independently deployable on the production machine.
+
+Do not rely on a container image or container volume existing only in the development sandbox.
+
+Provide:
+
+1. A reproducible laboratory image build process.
+2. A method of installing or importing the required container image.
+3. A method of creating student laboratory environments.
+4. A method of updating laboratory images.
+5. A method of backing up and restoring laboratory data where required.
+6. A method of resetting student laboratories without losing academic records.
+
+Document all required Podman configuration and dependencies.
+
+The application must verify that the laboratory is working before allowing students to begin practical exercises.
+
+#### E. Portability and Deployment Testing
+
+Before declaring the project complete, test the production installation independently of the development environment.
+
+At a minimum:
+
+1. Build the application in the sandbox.
+2. Produce the distributable installation package.
+3. Transfer the package and required installation assets to a clean Ubuntu environment.
+4. Install the application without relying on development-only resources.
+5. Launch the application.
+6. Create a student profile.
+7. Complete a lesson.
+8. Execute practical Linux exercises.
+9. Complete an end-of-lesson assessment.
+10. Close and restart the application.
+11. Verify that student progress persists.
+12. Test the laboratory reset functionality.
+13. Test the uninstall and reinstall procedures.
+
+The clean Ubuntu installation test is essential. A successful launch inside the development sandbox does not constitute proof that the application is ready for production.
+
+#### F. Development Documentation and Handover
+
+Maintain a complete record of how to move the application from the sandbox to a real Ubuntu machine.
+
+Provide:
+
+- `INSTALL.md` — production installation instructions.
+- `BUILD.md` — instructions for building distributable packages.
+- `DEPLOYMENT.md` — sandbox-to-production deployment procedure.
+- `UNINSTALL.md` — removal instructions.
+- `DEPENDENCIES.md` — runtime and build dependencies.
+- `BACKUP-RESTORE.md` — student data and configuration backup procedures.
+
+Include exact commands where appropriate.
+
+Do not use development-only absolute paths in the documentation.
+
+#### G. Final Requirement
+
+The sandbox is a development facility, not a production dependency.
+
+The completed project must be self-contained, reproducibly buildable and independently installable on a real Ubuntu system.
+
+The production installation must not require the development sandbox, its filesystem, its container volumes, its network services or its user accounts.
+
+**The final deliverable must be a working, installable Linux application, not merely source code that works in the development sandbox.**
+
+Do not declare an exercise complete merely because a command executed successfully.
+
+### 16. ACCEPTANCE CRITERIA
+
+The project will be considered functionally complete when:
+
+1. The application launches successfully on Ubuntu.
+2. A student can create a profile.
+3. All three learning levels are accessible according to progression requirements.
+4. Lessons can be viewed and navigated.
+5. The integrated Bash terminal functions correctly.
+6. Student commands execute inside the isolated environment.
+7. The application can verify actual task outcomes.
+8. Multiple valid approaches to a task are accepted.
+9. Incorrect solutions produce useful explanations.
+10. Every lesson has an end-of-lesson assessment.
+11. Level examinations are available.
+12. Student results and progress persist.
+13. The laboratory can be reset without losing academic progress.
+14. The application does not expose the host operating system to student commands.
+15. The application can be extended with additional lessons.
+
+### 17. PROJECT DOCUMENTATION
+
+Maintain comprehensive documentation throughout development.
+
+Create:
+
+- README.md — installation, setup and usage.
+- ARCHITECTURE.md — application architecture.
+- SECURITY.md — isolation design and security limitations.
+- CURRICULUM.md — curriculum structure.
+- ASSESSMENT.md — assessment methodology.
+- DEVELOPMENT.md — development and contribution instructions.
+- TESTING.md — testing procedures and results.
+- CHANGELOG.md — project changes.
+
+Maintain a comprehensive CLAUDE.md or AGENTS.md file containing project instructions, architecture decisions, development conventions, current progress and outstanding work.
+
+Keep documentation updated as implementation progresses.
+
+### 18. FINAL DEVELOPMENT INSTRUCTIONS
+
+Work as a senior software architect, Linux educator, Linux systems administrator and application developer.
+
+Do not rush into coding before understanding the requirements and designing the architecture.
+
+Make sensible technical decisions independently, documenting important decisions and their rationale.
+
+Build a genuinely functional application, not a mock-up or a demonstration with simulated functionality.
+
+Prioritise correctness, security, maintainability and educational effectiveness.
+
+Do not leave important components as placeholders while claiming the application is complete.
+
+Implement automated tests for the assessment engine, especially tests proving that different valid Linux commands can achieve the same exercise outcome and receive the same result.
+
+At the end of each development phase:
+- Run the relevant tests.
+- Fix identified defects.
+- Update documentation.
+- Record completed work.
+- Identify outstanding work.
+
+If the complete application is too large to implement in one development session, deliver it incrementally, maintaining a working application at every stage.
+
+**THE ULTIMATE GOAL**
+
+Create a modern Linux Tutor that gives students the experience of having a personal Linux instructor, a real Linux laboratory and an intelligent examiner in one application.
+
+A student should finish the course not merely knowing Linux commands, but understanding Linux well enough to work independently, solve problems and confidently administer a Linux system.
+
+
+Additional recommendations:
+There are four features I would particularly encourage you to retain as the project develops.
+
+1. A genuinely working Linux shell
+
+The terminal should be real, preferably Bash, rather than a command simulator. Students should be able to experiment freely within their isolated laboratory.
+
+2. Outcome-based marking
+
+This is arguably the most important feature. The software should recognise that Linux has multiple ways of achieving the same objective. It should mark the result, not the student's choice of command.
+
+3. A safe laboratory
+
+I strongly recommend rootless Podman with carefully designed isolation. This will allow students to learn commands involving permissions, users, services and other administrative functions without exposing the Ubuntu host.
+
+4. A proper progression system
+
+Students should demonstrate competency before advancing. Simply completing a lesson should not automatically mean they have understood it.
+
+On further feature worth considering:
+I would also like to see a Practice Mode in which students can enter the laboratory without following a lesson or being graded. They could experiment, deliberately break things, troubleshoot and learn from their mistakes.
+
+This would make the application useful beyond a conventional Linux course.
+
+My recommendation is to develop this initially as an Ubuntu desktop application, with the curriculum, terminal and assessment engine kept sufficiently independent that a web-based version could be introduced later.

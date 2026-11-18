@@ -1,0 +1,177 @@
+id: a15-priorities-resources
+level: advanced
+module: performance
+title: Process priorities and resource management
+duration: 40
+objectives:
+  - Control CPU and I/O priority with nice, renice and ionice
+  - Set per-user limits with ulimit and /etc/security/limits.d
+  - Limit services with systemd resource controls (cgroups v2)
+  - Find and act on resource bottlenecks
+
+sections:
+  - title: CPU and I/O priority
+    content: |
+      * **nice/renice** (-20..19) influence how the CPU scheduler shares time.
+      * **ionice** sets the I/O scheduling class: `-c1` realtime, `-c2` best-effort
+        (levels 0-7), `-c3` **idle** - only use the disk when nobody else does.
+
+      ```
+      nice -n 19 ionice -c3 tar czf /backup/home.tgz /home     # a polite backup
+      ionice -c3 -p 4321                                         # change a running process
+      chrt -p 4321                                               # real-time policy (rarely needed)
+      ```
+  - title: Per-user limits - ulimit and PAM
+    content: |
+      `ulimit` shows and changes the shell's resource limits (inherited by its children):
+
+      ```
+      ulimit -a          # all limits
+      ulimit -n          # max open files (soft)
+      ulimit -Hn         # hard limit (soft can be raised up to hard)
+      ulimit -u 200      # max processes for this shell - stops fork bombs
+      ```
+
+      Permanent, per-user or per-group limits are set by **pam_limits** from
+      `/etc/security/limits.conf` and `/etc/security/limits.d/*.conf` at login:
+
+      ```
+      # /etc/security/limits.d/90-dev.conf
+      @developers   soft   nofile   4096
+      @developers   hard   nofile   8192
+      student       hard   nproc    500
+      ```
+
+      They apply to **new** sessions.  Services started by systemd ignore limits.conf -
+      use `LimitNOFILE=` in the unit instead.
+  - title: cgroups and systemd
+    content: |
+      **Control groups (cgroups v2)** account for and limit the resources of groups of
+      processes.  systemd places every service in its own cgroup, so limits are one line:
+
+      ```ini
+      [Service]
+      MemoryMax=512M          # hard memory limit (OOM-kill above it)
+      CPUQuota=50%            # at most half of one CPU
+      TasksMax=100            # max processes/threads
+      IOWeight=50             # relative disk share (default 100)
+      ```
+
+      ```
+      sudo systemctl set-property backup.service CPUQuota=20%   # change at runtime (persistent)
+      systemd-cgtop                                              # live view of cgroup usage
+      systemd-run --scope -p MemoryMax=1G ./bigjob              # limit an ad-hoc command
+      ```
+
+      Your lab itself runs inside a cgroup with memory, CPU and process limits set by the
+      tutor - that is what keeps a runaway program in the lab from slowing your computer.
+
+exercises:
+  - id: limits-file
+    title: Protect against runaway users
+    instructions: |
+      Create **/etc/security/limits.d/90-students.conf** so that the user **student** gets a
+      **hard limit of 300 processes** (nproc) and a **soft limit of 2048 open files** (nofile)
+      in every new login session.
+    setup: rm -f /etc/security/limits.d/90-students.conf
+    reference: printf 'student hard nproc 300\nstudent soft nofile 2048\n' | sudo tee /etc/security/limits.d/90-students.conf
+    checks:
+      - {type: command, run: "runuser -l student -c 'ulimit -Hu'", stdout_equals: "300",
+         fail: "A new session of student does not have a hard process limit of 300."}
+      - {type: command, run: "runuser -l student -c 'ulimit -Sn'", stdout_equals: "2048",
+         fail: "A new session of student does not have a soft open-files limit of 2048."}
+    hints:
+      - "Each line: DOMAIN TYPE ITEM VALUE."
+      - "student hard nproc 300 and student soft nofile 2048."
+      - "printf 'student hard nproc 300\\nstudent soft nofile 2048\\n' | sudo tee /etc/security/limits.d/90-students.conf"
+      - "pam_limits applies the file at the next login; check with: sudo runuser -l student -c 'ulimit -Hu; ulimit -Sn'."
+  - id: service-limits
+    title: Cap a hungry service
+    instructions: |
+      The service **tutor-batch.service** exists.  Without editing its unit file, limit it to
+      **MemoryMax=200M** and **CPUQuota=25%**, and restart it so the limits are active.
+    setup: |
+      printf '[Unit]\nDescription=Batch job\n[Service]\nExecStart=/bin/sleep infinity\n[Install]\nWantedBy=multi-user.target\n' > /etc/systemd/system/tutor-batch.service
+      rm -rf /etc/systemd/system/tutor-batch.service.d /etc/systemd/system.control/tutor-batch.service.d
+      md5sum /etc/systemd/system/tutor-batch.service > /root/.batch.md5
+      systemctl daemon-reload; systemctl restart tutor-batch
+    cleanup: systemctl stop tutor-batch 2>/dev/null || true
+    reference: |
+      sudo systemctl set-property tutor-batch.service MemoryMax=200M CPUQuota=25%
+      sudo systemctl restart tutor-batch
+    alternatives:
+      - |
+        sudo mkdir -p /etc/systemd/system/tutor-batch.service.d
+        printf '[Service]\nMemoryMax=200M\nCPUQuota=25%%\n' | sudo tee /etc/systemd/system/tutor-batch.service.d/limits.conf
+        sudo systemctl daemon-reload && sudo systemctl restart tutor-batch
+    checks:
+      - {type: command, run: "systemctl show -p MemoryMax --value tutor-batch", stdout_equals: "209715200"}
+      - {type: command, run: "systemctl show -p CPUQuotaPerSecUSec --value tutor-batch", stdout_equals: "250ms",
+         fail: "CPUQuota is not 25% (CPUQuotaPerSecUSec should be 250ms)."}
+      - {type: service_active, name: tutor-batch}
+    constraints:
+      - {type: command, run: "md5sum --quiet -c /root/.batch.md5", exit_code: 0, fail: "The unit file itself was edited - use set-property or a drop-in."}
+    hints:
+      - systemd can set resource properties without editing the unit.
+      - "systemctl set-property UNIT MemoryMax=... CPUQuota=... (or a drop-in in tutor-batch.service.d)."
+      - sudo systemctl set-property tutor-batch.service MemoryMax=200M CPUQuota=25%
+      - "set-property writes a persistent drop-in under /etc/systemd/system.control and applies it immediately; systemctl show confirms the values."
+
+quiz:
+  questions:
+    - id: q-ionice
+      type: mcq
+      topic: CPU and I/O priority
+      prompt: Which ionice class makes a process use the disk only when it is otherwise idle?
+      options: ["-c1", "-c2", "-c3", "-c0"]
+      answer: 2
+    - id: q-soft
+      type: truefalse
+      topic: Per-user limits - ulimit and PAM
+      prompt: An ordinary user can raise their soft limit up to the hard limit, but not above it.
+      answer: true
+    - id: q-service-limits
+      type: troubleshoot
+      topic: Per-user limits - ulimit and PAM
+      prompt: "You raised nofile for the mysql user in limits.conf, but the MySQL service still hits 'Too many open files'.  Why?"
+      options:
+        - The file needs a reboot
+        - Services started by systemd do not go through pam_limits - set LimitNOFILE= in the unit
+        - nofile cannot be raised
+        - MySQL ignores limits
+      answer: 1
+    - id: q-cgtop
+      type: short
+      topic: cgroups and systemd
+      prompt: Which tool shows live resource usage per control group (per service)?
+      answer: [systemd-cgtop]
+    - id: q-memmax
+      type: mcq
+      topic: cgroups and systemd
+      prompt: What happens when a service exceeds MemoryMax?
+      options: [It is paused, The kernel's OOM killer kills processes in that cgroup, Its memory is swapped to the cloud, Nothing]
+      answer: 1
+    - id: q-forkbomb
+      type: mcq
+      topic: Per-user limits - ulimit and PAM
+      prompt: Which limit best protects a shared system against a fork bomb?
+      options: [nofile, nproc, fsize, core]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: An idle-priority job
+      topic: CPU and I/O priority
+      prompt: |
+        Start `sleep 6000` in the background with **niceness 19** and I/O class **idle**.
+      setup: pkill -xf 'sleep 6000' || true
+      cleanup: pkill -xf 'sleep 6000' || true
+      reference: nice -n 19 ionice -c3 sleep 6000 &
+      solution: nohup nice -n 19 ionice -c3 sleep 6000 >/dev/null 2>&1 &
+      checks:
+        - {type: process_nice, pattern: "^sleep 6000$", nice: 19}
+        - {type: command, run: "ionice -p $(pgrep -xf 'sleep 6000' | head -1)", stdout_equals: idle}
+      hints:
+        - Chain both tools in front of the command.
+        - "nice -n 19 ionice -c3 COMMAND &"
+        - nice -n 19 ionice -c3 sleep 6000 &
+        - "ps -o ni,cmd and ionice -p PID confirm the settings."

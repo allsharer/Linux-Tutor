@@ -1,0 +1,192 @@
+id: b04-terminal
+level: beginner
+module: getting-started
+title: Opening and using a terminal
+duration: 25
+objectives:
+  - Read the shell prompt
+  - Edit and re-use command lines with history and keyboard shortcuts
+  - Use Tab completion to type faster and avoid mistakes
+  - Interrupt a running program and clear the screen
+
+sections:
+  - title: Opening a terminal
+    content: |
+      On an Ubuntu desktop you open a terminal with **Ctrl+Alt+T**, or by searching
+      for "Terminal" in the activities overview.  On a server you get a terminal by
+      logging in at the console or connecting with SSH (a later lesson).
+
+      In Linux Tutor the terminal is already open below the lecture.  You can open
+      more tabs with **Lab > New terminal tab** (Ctrl+Shift+T), just as you would
+      open several terminal windows on a real system.
+
+      :::note
+      Copy and paste in a terminal use **Ctrl+Shift+C** and **Ctrl+Shift+V**,
+      because Ctrl+C has a special meaning (see below).  Selecting text with the
+      mouse also copies it; the middle mouse button pastes it.
+      :::
+  - title: Editing the command line
+    content: |
+      You do not have to retype a command to fix a typo.  The shell's line editor
+      understands these keys:
+
+      | Key | Action |
+      |---|---|
+      | Left / Right | move the cursor |
+      | **Ctrl+A** / **Ctrl+E** | jump to the start / end of the line |
+      | **Ctrl+U** | delete from the cursor to the start of the line |
+      | **Ctrl+K** | delete from the cursor to the end |
+      | **Ctrl+W** | delete the previous word |
+      | **Ctrl+L** | clear the screen (same as the `clear` command) |
+
+      Try them now: type a long line, then jump around it.
+  - title: Command history
+    content: |
+      Bash remembers the commands you type.
+
+      * **Up / Down** arrows step through previous commands.
+      * `history` lists them with numbers; `!42` re-runs number 42.
+      * `!!` repeats the last command - often used as `sudo !!` when you forgot sudo.
+      * **Ctrl+R** searches backwards: press it and type part of an old command.
+
+      History is saved in the file `~/.bash_history` when the shell exits, so it
+      survives between sessions.
+    examples:
+      - command: history
+        explanation: Lists your previous commands with their numbers.
+      - command: history | tail -5
+        explanation: Only the last five (you will learn about the | pipe later).
+  - title: Tab completion
+    content: |
+      Press **Tab** and the shell completes command names, file names and paths for
+      you.  If several completions are possible, press Tab twice to list them.
+
+      ```
+      $ cat /etc/os-r<Tab>
+      $ cat /etc/os-release
+      ```
+
+      Tab completion is not just a time-saver.  If Tab does not complete a path, the
+      path probably does not exist - you caught a typo before running the command.
+
+      :::tip
+      Experienced administrators press Tab constantly.  Make it a habit from day one.
+      :::
+  - title: Stopping a program
+    content: |
+      Some commands run until you stop them.  `sleep 100` waits 100 seconds; `yes`
+      prints "y" forever.
+
+      * **Ctrl+C** interrupts (stops) the program running in the foreground.
+      * **Ctrl+D** means "end of input".  At an empty prompt it logs out of the shell.
+      * **q** quits programs that show text page by page, such as `less` and `man`.
+
+      Try it: run `yes`, watch the flood, then press **Ctrl+C**.
+    examples:
+      - command: sleep 100
+        explanation: Waits 100 seconds - press Ctrl+C to stop it early.
+      - command: "yes"
+        explanation: Prints y forever until interrupted with Ctrl+C.
+
+exercises:
+  - id: find-secret
+    title: Use Tab completion
+    instructions: |
+      A file with a long, awkward name has been created in **/opt/tutor/**.  Use Tab
+      completion to display it with `cat`, and type the **secret word** it contains
+      into the answer box.
+    answer_prompt: "Secret word:"
+    setup: |
+      mkdir -p /opt/tutor && rm -f /opt/tutor/*
+      echo "The secret word is: penguin" > /opt/tutor/this-is-a-very-long-file-name-that-nobody-wants-to-type.txt
+    reference: cat /opt/tutor/this-is-a-very-long-file-name-that-nobody-wants-to-type.txt
+    test_answer: penguin
+    checks:
+      - {type: answer, equals: penguin, fail: That is not the secret word.  Display the file in /opt/tutor with cat.}
+    hints:
+      - Type the beginning of the path and let the shell finish it for you.
+      - Type cat /opt/tutor/ and press the Tab key.
+      - "cat /opt/tutor/th<Tab>"
+      - "Typing cat /opt/tutor/th and pressing Tab completes the long file name; Enter shows 'The secret word is: penguin'."
+  - id: history-file
+    title: Save your history
+    instructions: |
+      Run at least three commands of your choice, then save your **command history**
+      into the file **~/my-history.txt**.
+    setup: rm -f {home}/my-history.txt
+    reference: history > ~/my-history.txt
+    solution: |
+      echo one; echo two; echo three
+      printf '  1  echo one\n  2  echo two\n  3  echo three\n  4  history > ~/my-history.txt\n' > ~/my-history.txt
+    checks:
+      - {type: file_lines, path: ~/my-history.txt, min: 3,
+         fail: ~/my-history.txt should contain at least three lines of history.}
+    hints:
+      - There is a command that lists your history; its output can be saved into a file.
+      - The history command prints the history; > saves output into a file.
+      - history > ~/my-history.txt
+      - "history > ~/my-history.txt writes your numbered command history into the file. cp ~/.bash_history ~/my-history.txt would also work once history has been saved."
+
+quiz:
+  questions:
+    - id: q-ctrlc
+      type: mcq
+      topic: Stopping a program
+      prompt: A command is running and will not stop.  Which key combination interrupts it?
+      options: [Ctrl+Z, Ctrl+C, Ctrl+L, Ctrl+Shift+C]
+      answer: 1
+    - id: q-tab
+      type: truefalse
+      topic: Tab completion
+      prompt: If pressing Tab does not complete a file path, the path you typed may not exist.
+      answer: true
+    - id: q-ctrlr
+      type: mcq
+      topic: Command history
+      prompt: What does Ctrl+R do in bash?
+      options:
+        - Reloads the shell configuration
+        - Searches backwards through the command history
+        - Repeats the last command
+        - Runs the current command as root
+      answer: 1
+    - id: q-bang
+      type: short
+      topic: Command history
+      prompt: Which two characters re-run the previous command?
+      answer: ["!!"]
+    - id: q-copy
+      type: mcq
+      topic: Opening a terminal
+      prompt: How do you copy selected text in most Linux terminals?
+      options: [Ctrl+C, Ctrl+Shift+C, Alt+C, Ctrl+Insert only]
+      answer: 1
+      explanation: Ctrl+C is reserved for interrupting programs, so terminals use Ctrl+Shift+C.
+    - id: q-ctrla
+      type: mcq
+      topic: Editing the command line
+      prompt: Which key moves the cursor to the beginning of the command line?
+      options: [Home only, Ctrl+A, Ctrl+B, Ctrl+U]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Find the hidden message
+      topic: Tab completion
+      prompt: |
+        A file has been placed somewhere under **/opt/tutor/messages/** - it is the only
+        file there, deep inside several directories with long names.  Display it and type
+        the **number** it contains into the answer box.
+      answer_prompt: "Number:"
+      setup: |
+        rm -rf /opt/tutor/messages
+        d=/opt/tutor/messages/important-documents/archived-in-twenty-twenty-four/final-version
+        mkdir -p "$d" && echo "Your number is 4711" > "$d/read-me-carefully.txt"
+      reference: cat /opt/tutor/messages/important-documents/archived-in-twenty-twenty-four/final-version/read-me-carefully.txt
+      test_answer: "4711"
+      checks:
+        - {type: answer, equals: "4711"}
+      hints:
+        - Let the shell type the long names for you.
+        - Press Tab after each partial directory name.
+        - "cat /opt/tutor/messages/<Tab><Tab><Tab><Tab>"
+        - "Each Tab completes one directory level because there is only one choice. The file says 4711."

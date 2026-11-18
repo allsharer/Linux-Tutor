@@ -1,0 +1,230 @@
+id: b09-files
+level: beginner
+module: filesystem
+title: Creating, viewing and editing files
+duration: 30
+objectives:
+  - Create files with touch, echo and redirection
+  - View files with cat, less, head and tail
+  - Edit text files with the nano editor
+  - Identify what kind of data a file contains with file
+
+sections:
+  - title: Creating files
+    content: |
+      There are several ways to create a file:
+
+      * `touch notes.txt` - creates an **empty** file (or updates the time stamp of an
+        existing one).
+      * `echo "Hello" > hello.txt` - writes the output of `echo` into a file.  The `>`
+        **redirects** output into a file, creating or *overwriting* it.
+      * `echo "More" >> hello.txt` - `>>` **appends** to the end instead of overwriting.
+      * Opening a new file in a text editor and saving it.
+
+      :::warning
+      `>` overwrites without asking.  `echo hi > important.txt` replaces the whole
+      content of important.txt with "hi".  Use `>>` when you want to add.
+      :::
+    examples:
+      - command: echo "first line" > demo.txt
+        explanation: Creates (or overwrites) demo.txt with one line.
+      - command: echo "second line" >> demo.txt
+        explanation: Appends a second line.
+      - command: cat demo.txt
+        explanation: Shows both lines.
+  - title: Viewing files
+    content: |
+      | Command | Use it for |
+      |---|---|
+      | `cat file` | short files - prints everything at once |
+      | `less file` | long files - scroll with arrows/PgUp/PgDn, search with `/word`, quit with `q` |
+      | `head file` | the first 10 lines (`head -n 3` for three) |
+      | `tail file` | the last 10 lines (`tail -n 20` for twenty) |
+      | `tail -f file` | follow a growing file, e.g. a log, until Ctrl+C |
+      | `wc file` | count lines, words and bytes |
+
+      `cat` stands for con*cat*enate: `cat a b` prints a and then b.
+    examples:
+      - command: head -n 5 /etc/passwd
+        explanation: The first five lines of the user database.
+      - command: tail -n 3 /etc/passwd
+        explanation: The last three lines.
+      - command: less /etc/services
+        explanation: Browse a long file. Press q to quit.
+      - command: wc -l /etc/services
+        explanation: Count its lines.
+  - title: Editing with nano
+    content: |
+      Configuration in Linux is mostly plain text, so editing text files is an
+      everyday task.  **nano** is a simple editor that shows its commands at the
+      bottom of the screen (`^` means Ctrl):
+
+      ```
+      nano notes.txt
+      ```
+
+      * Type normally; move with the arrow keys.
+      * **Ctrl+O** then Enter - save ("write Out").
+      * **Ctrl+X** - exit (it asks to save if needed).
+      * **Ctrl+K** cuts a line, **Ctrl+U** pastes it.
+      * **Ctrl+W** searches.
+
+      :::note
+      You will meet **vi/vim** on every Unix system.  It is powerful but has *modes*:
+      press `i` to insert text, `Esc` to stop, then type `:wq` Enter to save and quit,
+      or `:q!` to quit without saving.  If you ever get "stuck" in vi, press Esc and
+      type `:q!`.
+      :::
+  - title: What kind of file is it?
+    content: |
+      Linux does not rely on file name extensions.  A file called `photo.txt` may be
+      a JPEG image.  The `file` command looks at the *content* and tells you:
+
+      ```
+      $ file /etc/hostname /usr/bin/ls /usr/share/man/man1/ls.1.gz
+      /etc/hostname:                ASCII text
+      /usr/bin/ls:                  ELF 64-bit LSB pie executable, x86-64 ...
+      /usr/share/man/man1/ls.1.gz:  gzip compressed data
+      ```
+
+      Never `cat` a binary file - it fills the terminal with garbage.  If that happens,
+      type `reset` and press Enter.
+
+exercises:
+  - id: shopping
+    title: Write a shopping list
+    instructions: |
+      Create the file **~/shopping.txt** containing exactly these three lines, in this order:
+
+          bread
+          milk
+          apples
+
+      Use any method you like - echo with redirection, or the nano editor.
+    setup: rm -f {home}/shopping.txt
+    reference: printf 'bread\nmilk\napples\n' > ~/shopping.txt
+    alternatives:
+      - echo bread > ~/shopping.txt; echo milk >> ~/shopping.txt; echo apples >> ~/shopping.txt
+      - "cat > ~/shopping.txt <<'EOF'\nbread\nmilk\napples\nEOF"
+    wrong:
+      - {run: echo bread > ~/shopping.txt; echo milk > ~/shopping.txt; echo apples > ~/shopping.txt,
+         feedback: overwrites}
+    method_patterns: ['echo|printf|nano|vi|cat']
+    checks:
+      - {type: file_exists, path: ~/shopping.txt}
+      - type: file_equals
+        path: ~/shopping.txt
+        content: "bread\nmilk\napples"
+        fail: ~/shopping.txt does not contain exactly the three lines bread, milk, apples (one per line, in that order).
+    diagnostics:
+      - when: {type: file_equals, path: ~/shopping.txt, content: apples}
+        message: >
+          The file only contains "apples".  Each `>` overwrites the file, so only the last
+          line survived.  Use `>>` to append the second and third lines.
+      - when: {type: file_contains, path: ~/shopping.txt, regex: 'bread.*milk|milk.*apples'}
+        message: All words seem to be on one line.  Each item must be on its own line.
+    hints:
+      - The file needs three separate lines. Think about the difference between > and >>.
+      - "> creates or overwrites a file; >> appends. Or open the file in nano and type the lines."
+      - "echo bread > ~/shopping.txt; echo milk >> ~/shopping.txt; echo apples >> ~/shopping.txt"
+      - "The first echo uses > to create the file, the next two use >> to add lines. Alternatively: nano ~/shopping.txt, type the lines, Ctrl+O Enter, Ctrl+X."
+  - id: edit-config
+    title: Edit a configuration file
+    instructions: |
+      The file **~/app.conf** contains the line `colour=red`.  Change it to
+      **`colour=blue`**, leaving every other line unchanged.  Use nano (or any editor).
+    setup: |
+      printf '# demo application\nname=demo\ncolour=red\nsize=10\n' > {home}/app.conf
+      chown student: {home}/app.conf
+    reference: nano ~/app.conf
+    solution: sed -i 's/colour=red/colour=blue/' ~/app.conf
+    alternatives: ["printf '# demo application\\nname=demo\\ncolour=blue\\nsize=10\\n' > ~/app.conf"]
+    checks:
+      - {type: file_contains, path: ~/app.conf, regex: '^colour=blue$'}
+      - {type: file_not_contains, path: ~/app.conf, text: colour=red, fail: The old line colour=red is still in the file.}
+    constraints:
+      - {type: file_contains, path: ~/app.conf, regex: ['^name=demo$', '^size=10$', '^# demo application$'],
+         fail: Other lines of app.conf were changed or removed - only the colour line should change.}
+    hints:
+      - Open the file in a text editor, change one word and save.
+      - "nano ~/app.conf; change red to blue; save with Ctrl+O, exit with Ctrl+X."
+      - nano ~/app.conf
+      - "In nano move to 'red' with the arrow keys, delete it, type 'blue', press Ctrl+O and Enter to save, Ctrl+X to exit. Check with cat ~/app.conf."
+  - id: tail-log
+    title: Read the end of a log
+    instructions: |
+      The file **/var/log/tutor-demo.log** is long.  What is written on its **last line**?
+      Type the last line exactly into the answer box.
+    answer_prompt: "Last line:"
+    setup: |
+      seq 1 500 | sed 's/^/event /' > /var/log/tutor-demo.log
+      echo "shutdown requested by operator" >> /var/log/tutor-demo.log; chmod 644 /var/log/tutor-demo.log
+    reference: tail -n 1 /var/log/tutor-demo.log
+    test_answer: shutdown requested by operator
+    checks:
+      - {type: answer, command: tail -n 1 /var/log/tutor-demo.log}
+    hints:
+      - You only need the end of the file.
+      - tail shows the last lines of a file; -n chooses how many.
+      - tail -n 1 /var/log/tutor-demo.log
+      - "tail -n 1 prints only the final line: shutdown requested by operator."
+
+quiz:
+  questions:
+    - id: q-append
+      type: mcq
+      topic: Creating files
+      prompt: Which command adds a line to the end of notes.txt without deleting what is already there?
+      options: ['echo "x" > notes.txt', 'echo "x" >> notes.txt', 'touch notes.txt "x"', 'cat "x" notes.txt']
+      answer: 1
+    - id: q-less
+      type: mcq
+      topic: Viewing files
+      prompt: In less, how do you quit?
+      options: [Ctrl+X, Esc, q, Ctrl+Q]
+      answer: 2
+    - id: q-head
+      type: short
+      topic: Viewing files
+      prompt: Write the command that shows the first 3 lines of /etc/passwd.
+      answer: ["head -n 3 /etc/passwd", "head -3 /etc/passwd", "re:head\\s+(-n\\s*3|-3|--lines=3)\\s+/etc/passwd"]
+    - id: q-ext
+      type: truefalse
+      topic: What kind of file is it?
+      prompt: Linux decides what a file contains from its extension, such as .txt or .jpg.
+      answer: false
+      explanation: Extensions are only a convention; the file command inspects the content.
+    - id: q-vi
+      type: mcq
+      topic: Editing with nano
+      prompt: You opened a file in vi by accident.  How do you quit without saving?
+      options: [Ctrl+X, Press Esc then type :q! and Enter, Ctrl+C, Type exit]
+      answer: 1
+    - id: q-tailf
+      type: mcq
+      topic: Viewing files
+      prompt: Which command lets you watch new lines being added to a log file as they arrive?
+      options: [cat -f, less -n, tail -f, head -f]
+      answer: 2
+    - id: q-practical
+      type: practical
+      title: A note with a header
+      topic: Creating files
+      prompt: |
+        The file **~/todo.txt** already contains a list of tasks.  Add the line
+        **`call the bank`** to the **end** of the file without losing the existing tasks.
+      setup: |
+        printf 'water the plants\nreply to Sam\n' > {home}/todo.txt; chown student: {home}/todo.txt
+      reference: echo "call the bank" >> ~/todo.txt
+      checks:
+        - {type: file_contains, path: ~/todo.txt, regex: 'call the bank\s*\Z'}
+      constraints:
+        - {type: file_contains, path: ~/todo.txt, text: [water the plants, reply to Sam],
+           fail: "The existing tasks were lost - > overwrites, >> appends."}
+      wrong:
+        - {run: echo "call the bank" > ~/todo.txt, expect: correct_side_effects}
+      hints:
+        - You must add, not replace.
+        - ">> appends to a file."
+        - echo "call the bank" >> ~/todo.txt
+        - "echo \"call the bank\" >> ~/todo.txt adds the line at the end; the other lines stay."

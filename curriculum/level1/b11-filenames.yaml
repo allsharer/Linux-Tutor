@@ -1,0 +1,182 @@
+id: b11-filenames
+level: beginner
+module: filesystem
+title: Understanding filenames and extensions
+duration: 20
+objectives:
+  - Know which characters are allowed in Linux file names
+  - Handle names containing spaces and special characters with quoting
+  - Understand hidden files and the role of extensions
+  - Recognise case sensitivity in file names
+
+sections:
+  - title: The rules
+    content: |
+      Linux file names may contain almost any character except `/` (the separator)
+      and the NUL byte.  Names are up to 255 bytes long and **case-sensitive**:
+      `Report.txt`, `report.txt` and `REPORT.TXT` are three different files.
+
+      Good practice, which saves you a lot of typing and quoting:
+
+      * use lower case letters, digits, `-`, `_` and `.`;
+      * avoid spaces - use `my-notes.txt` or `my_notes.txt`;
+      * avoid characters the shell treats specially: `* ? [ ] $ & ; | < > ( ) ' " \ !`
+        and a leading `-`.
+  - title: Spaces and quoting
+    content: |
+      The shell splits a command line into words at spaces.  So
+
+      ```
+      $ touch my notes.txt
+      ```
+
+      creates **two** files: `my` and `notes.txt`.  To use a space inside a name you
+      must **quote** it or **escape** it:
+
+      ```
+      $ touch "my notes.txt"        # double quotes
+      $ touch 'my notes.txt'        # single quotes
+      $ touch my\ notes.txt         # backslash escapes the next character
+      ```
+
+      Tab completion inserts the backslashes for you.
+
+      :::note
+      Single quotes keep *everything* literal.  Double quotes still allow `$VARIABLE`
+      expansion: `echo "$HOME"` prints /home/student, `echo '$HOME'` prints $HOME.
+      :::
+    examples:
+      - command: touch "my notes.txt"
+        explanation: Creates one file with a space in its name.
+      - command: ls -l my\ notes.txt
+        explanation: Refers to it with an escaped space.
+  - title: Hidden files
+    content: |
+      A name beginning with a dot is **hidden**: `ls` and wildcards such as `*` skip
+      it.  Programs keep their per-user settings in hidden files and directories
+      ("dot files") so they do not clutter your home: `.bashrc`, `.profile`,
+      `.config/`, `.ssh/`.
+
+      To hide a file, simply rename it to start with a dot.  `ls -a` shows them all.
+  - title: Extensions are a convention
+    content: |
+      A suffix like `.txt`, `.sh` or `.tar.gz` is just part of the name.  The kernel
+      does not care; programs and people use it as a *hint*.
+
+      | Extension | Usually |
+      |---|---|
+      | `.txt`, `.md` | text, Markdown |
+      | `.conf`, `.cfg` | configuration |
+      | `.sh` | shell script |
+      | `.log` | log file |
+      | `.tar`, `.gz`, `.tar.gz`, `.zip` | archives and compressed files |
+      | `.deb`, `.rpm` | software packages |
+
+      Programs in `/usr/bin` normally have **no extension at all**: `ls`, not `ls.exe`.
+      Whether a file can be run depends on its *permissions*, not its name.
+    more: |
+      A file whose name starts with `-` confuses commands, which read it as an
+      option: `rm -file` fails.  Use `rm -- -file` (the `--` means "no more options
+      after this") or `rm ./-file`.
+
+exercises:
+  - id: spaces
+    title: A name with spaces
+    instructions: |
+      Create a **single** empty file in your home directory called exactly
+      **`meeting notes 2024.txt`** (with the spaces).
+    setup: |
+      cd {home} && rm -f "meeting notes 2024.txt" meeting notes 2024.txt
+    reference: touch ~/"meeting notes 2024.txt"
+    alternatives: ['touch ~/meeting\ notes\ 2024.txt', "cd ~ && touch 'meeting notes 2024.txt'"]
+    wrong:
+      - {run: cd ~ && touch meeting notes 2024.txt, feedback: separate}
+    checks:
+      - {type: file_exists, path: "~/meeting notes 2024.txt"}
+    constraints:
+      - {type: not_exists, path: ~/meeting, fail: "A file called 'meeting' was also created - the name was split at the spaces."}
+    diagnostics:
+      - when: {type: file_exists, path: ~/meeting}
+        message: >
+          Files called 'meeting', 'notes' and '2024.txt' exist: the shell split the name at the
+          spaces and created three separate files.  Put the name in quotes. (Remove the
+          extra files with rm ~/meeting ~/notes ~/2024.txt.)
+    hints:
+      - The shell splits words at spaces unless you tell it not to.
+      - Use quotes around the name, or a backslash before each space.
+      - touch ~/"meeting notes 2024.txt"
+      - "Quotes make the whole name one argument. ~ must stay outside the quotes so the shell expands it."
+  - id: hide
+    title: Hide a file
+    instructions: |
+      Make **~/diary.txt** a **hidden** file called **~/.diary.txt** (it must keep its content).
+    setup: |
+      rm -f {home}/.diary.txt; echo "Dear diary" > {home}/diary.txt; chown student: {home}/diary.txt
+    reference: mv ~/diary.txt ~/.diary.txt
+    checks:
+      - {type: file_contains, path: ~/.diary.txt, text: Dear diary}
+      - {type: not_exists, path: ~/diary.txt, fail: The visible ~/diary.txt still exists - rename it rather than copy it.}
+    hints:
+      - Hidden files are simply files whose names start with something special.
+      - Rename the file so that its name starts with a dot - renaming is done with mv.
+      - mv ~/diary.txt ~/.diary.txt
+      - "mv ~/diary.txt ~/.diary.txt hides it; ls no longer shows it, ls -a does."
+
+quiz:
+  questions:
+    - id: q-case
+      type: truefalse
+      topic: The rules
+      prompt: In Linux, Notes.txt and notes.txt can exist side by side in the same directory.
+      answer: true
+    - id: q-split
+      type: mcq
+      topic: Spaces and quoting
+      prompt: How many files does `touch annual report.pdf` create?
+      options: ["One: 'annual report.pdf'", "Two: 'annual' and 'report.pdf'", None - it is an error, "Three"]
+      answer: 1
+    - id: q-quotes
+      type: interpret
+      topic: Spaces and quoting
+      prompt: What does the second command print?
+      output: |
+        $ NAME=world
+        $ echo 'Hello $NAME'
+      options: [Hello world, Hello $NAME, Hello, An error]
+      answer: 1
+      explanation: Single quotes prevent variable expansion.
+    - id: q-hidden
+      type: short
+      topic: Hidden files
+      prompt: Which character at the start of a file name makes the file hidden?
+      answer: [".", "a dot", "dot", "re:\\.|a? ?dot|period|full stop"]
+    - id: q-exe
+      type: mcq
+      topic: Extensions are a convention
+      prompt: What makes a file runnable as a program in Linux?
+      options: [The .exe extension, The .sh extension, Its execute permission, Being in the /bin directory]
+      answer: 2
+    - id: q-dash
+      type: troubleshoot
+      topic: Extensions are a convention
+      prompt: "`rm -backup.txt` fails with 'invalid option -- b'.  How do you delete the file?"
+      options: [rm "-backup.txt", rm -- -backup.txt, rm -f -backup.txt, sudo rm -backup.txt]
+      answer: 1
+      explanation: Quotes do not help - the program still sees a leading dash.  -- or ./-backup.txt does.
+    - id: q-practical
+      type: practical
+      title: Tidy file names
+      topic: Spaces and quoting
+      prompt: |
+        Rename **~/My Holiday Photo.jpg** to **~/my-holiday-photo.jpg**.
+      setup: |
+        rm -f {home}/my-holiday-photo.jpg; touch "{home}/My Holiday Photo.jpg"; chown student: "{home}/My Holiday Photo.jpg"
+      reference: mv ~/"My Holiday Photo.jpg" ~/my-holiday-photo.jpg
+      checks:
+        - {type: file_exists, path: ~/my-holiday-photo.jpg}
+        - {type: not_exists, path: "~/My Holiday Photo.jpg"}
+      hints:
+        - The old name contains spaces.
+        - Quote the old name; mv renames.
+        - mv ~/"My Holiday Photo.jpg" ~/my-holiday-photo.jpg
+        - "Quoting (or Tab completion, which adds backslashes) passes the whole name as one argument to mv."

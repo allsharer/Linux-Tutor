@@ -1,0 +1,185 @@
+id: a02-functions-expansion
+level: advanced
+module: scripting
+title: Shell functions and advanced parameter expansion
+duration: 40
+objectives:
+  - Use parameter expansion for defaults, substrings, removal and replacement
+  - Write reusable function libraries with local variables and return codes
+  - Pass arrays and use name references
+  - Replace external commands (basename, sed, cut) with built-in expansion
+
+sections:
+  - title: Defaults and checks
+    content: |
+      | Expansion | Result |
+      |---|---|
+      | `${var:-default}` | value of var, or *default* if unset/empty |
+      | `${var:=default}` | same, and assigns the default to var |
+      | `${var:?message}` | value, or abort the script with *message* |
+      | `${var:+alt}` | *alt* if var is set, else nothing |
+      | `${#var}` | length |
+
+      ```bash
+      port=${PORT:-8080}
+      : "${DB_PASSWORD:?DB_PASSWORD must be set}"
+      ```
+  - title: Trimming, slicing and replacing
+    content: |
+      | Expansion | Example with f=/var/log/app.tar.gz |
+      |---|---|
+      | `${f#*/}` remove shortest prefix | `var/log/app.tar.gz` |
+      | `${f##*/}` remove longest prefix (= basename) | `app.tar.gz` |
+      | `${f%.*}` remove shortest suffix | `/var/log/app.tar` |
+      | `${f%%.*}` remove longest suffix | `/var/log/app` |
+      | `${f%/*}` (= dirname) | `/var/log` |
+      | `${f:5:3}` substring offset 5, length 3 | `log` |
+      | `${f/log/LOG}` replace first | `/var/LOG/app.tar.gz` |
+      | `${f//a/A}` replace all | `/vAr/log/App.tAr.gz` |
+      | `${f^^}` / `${f,,}` | upper / lower case |
+
+      Memory aid: `#` is on the left of `$` on a US keyboard (front), `%` on the right (back).
+      These run inside bash - no extra process, much faster in loops than `sed` or `basename`.
+  - title: Functions as building blocks
+    content: |
+      ```bash
+      # lib.sh - source it with:  . ./lib.sh
+      die()  { echo "fatal: $*" >&2; exit 1; }
+      have() { command -v "$1" >/dev/null 2>&1; }
+
+      backup_file() {
+          local src=$1 dest=${2:-$1.bak}
+          [[ -f $src ]] || return 1
+          cp -- "$src" "$dest"
+      }
+      ```
+
+      * `local` keeps variables private; `return N` sets the status (0-255).
+      * Return *data* by printing it: `result=$(myfunc args)`.
+      * `declare -n ref=$1` (a **nameref**) lets a function fill a caller's array or variable.
+      * `declare -f name` prints a function; `type name` says whether it is one.
+
+exercises:
+  - id: expansion
+    title: Built-in string surgery
+    instructions: |
+      Write an executable script **~/split.sh** that takes a path such as
+      `/data/archive/report.final.pdf` and prints **three lines**: the directory, the file
+      name without its **last** extension, and the extension:
+
+          /data/archive
+          report.final
+          pdf
+
+      Use **parameter expansion only** - no basename, dirname, sed, cut or awk.
+    setup: rm -f {home}/split.sh
+    reference: |
+      cat > ~/split.sh <<'EOF'
+      #!/bin/bash
+      p=$1
+      file=${p##*/}
+      echo "${p%/*}"
+      echo "${file%.*}"
+      echo "${file##*.}"
+      EOF
+      chmod +x ~/split.sh
+    checks:
+      - {type: script, path: ~/split.sh, args: [/data/archive/report.final.pdf], stdout_equals: "/data/archive\nreport.final\npdf"}
+      - {type: script, path: ~/split.sh, args: [/home/a b/notes.txt], stdout_equals: "/home/a b\nnotes\ntxt"}
+      - {type: file_not_contains, path: ~/split.sh, regex: '\b(basename|dirname|sed|cut|awk)\b',
+         fail: "The script uses an external command - use ${var#...}, ${var%...} etc. instead."}
+    hints:
+      - "Prefix and suffix removal: # ## % %%."
+      - "${p%/*} is the directory; ${p##*/} the file name; then trim the extension from that."
+      - "file=${p##*/}; echo \"${p%/*}\"; echo \"${file%.*}\"; echo \"${file##*.}\""
+      - "% removes the SHORTEST matching suffix, so report.final.pdf keeps report.final; ## removes the LONGEST prefix, leaving pdf."
+  - id: library
+    title: A function library
+    instructions: |
+      Create **~/lib.sh** (it will be *sourced*, it need not be executable) defining two functions:
+
+      * `trim` - prints its argument with leading and trailing spaces removed;
+      * `is_ip` - returns **0** if its argument looks like an IPv4 address (four numbers
+        0-255 separated by dots), otherwise **1**.  It must print nothing.
+    setup: rm -f {home}/lib.sh
+    reference: |
+      cat > ~/lib.sh <<'EOF'
+      trim() {
+          local s=$1
+          s=${s#"${s%%[![:space:]]*}"}
+          s=${s%"${s##*[![:space:]]}"}
+          printf '%s\n' "$s"
+      }
+      is_ip() {
+          local IFS=. a b c d
+          [[ $1 =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || return 1
+          read -r a b c d <<< "$1"
+          (( a <= 255 && b <= 255 && c <= 255 && d <= 255 ))
+      }
+      EOF
+    checks:
+      - {type: command, user: student, run: ". ~/lib.sh; trim '   hello world  '", stdout_equals: "hello world"}
+      - {type: command, user: student, run: ". ~/lib.sh; is_ip 192.168.1.20 && echo yes", stdout_equals: "yes"}
+      - {type: command, user: student, run: ". ~/lib.sh; is_ip 10.0.300.1 || echo no", stdout_equals: "no",
+         fail: "is_ip accepts 10.0.300.1, but 300 is not a valid octet."}
+      - {type: command, user: student, run: ". ~/lib.sh; is_ip hello || echo no", stdout_equals: "no"}
+    hints:
+      - Write two functions; test them with . ~/lib.sh in your shell.
+      - "A regex [[ $1 =~ ^[0-9]{1,3}(\\.[0-9]{1,3}){3}$ ]] checks the shape; then compare each part with 255."
+      - "Split the address with IFS=. read -r a b c d <<< \"$1\" and test (( a <= 255 && ... ))."
+      - "For trim, either use the nested expansions shown in the reference, or: [[ $1 =~ ^[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]] && echo \"${BASH_REMATCH[1]}\"."
+
+quiz:
+  questions:
+    - id: q-default
+      type: interpret
+      topic: Defaults and checks
+      prompt: LEVEL is not set.  What is printed?
+      output: 'echo "${LEVEL:-info}"'
+      options: [nothing, info, LEVEL, an error]
+      answer: 1
+    - id: q-hash
+      type: interpret
+      topic: Trimming, slicing and replacing
+      prompt: "f=backup.2024.tar.gz - what does ${f%%.*} print?"
+      options: [backup.2024.tar, backup, gz, 2024.tar.gz]
+      answer: 1
+    - id: q-replace
+      type: short
+      topic: Trimming, slicing and replacing
+      prompt: Write the expansion that replaces ALL spaces in the variable name with underscores.
+      answer: ['${name// /_}', "re:\\$\\{name//( |\\\\ )/_\\}"]
+    - id: q-local
+      type: truefalse
+      topic: Functions as building blocks
+      prompt: Variables assigned inside a Bash function are global unless declared local.
+      answer: true
+    - id: q-required
+      type: mcq
+      topic: Defaults and checks
+      prompt: Which expansion aborts the script with a message if CONFIG is unset or empty?
+      options: ['${CONFIG:-msg}', '${CONFIG:?msg}', '${CONFIG:+msg}', '${#CONFIG}']
+      answer: 1
+    - id: q-perf
+      type: mcq
+      topic: Trimming, slicing and replacing
+      prompt: Why prefer ${f##*/} over $(basename "$f") inside a loop over 100 000 files?
+      options: [It handles more characters, It runs inside bash without starting a new process, basename is deprecated, There is no difference]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Change extensions
+      topic: Trimming, slicing and replacing
+      prompt: |
+        In **~/docs**, rename every `*.markdown` file to `*.md` (same base name), using a loop
+        and parameter expansion.
+      setup: |
+        rm -rf {home}/docs; mkdir -p {home}/docs; touch {home}/docs/{intro,setup,faq}.markdown {home}/docs/keep.txt; chown -R student: {home}/docs
+      reference: for f in ~/docs/*.markdown; do mv -- "$f" "${f%.markdown}.md"; done
+      checks:
+        - {type: command, run: "ls /home/student/docs | sort | tr '\\n' ' '", stdout_equals: "faq.md intro.md keep.txt setup.md"}
+      hints:
+        - Loop over the files; remove the old suffix and add the new one.
+        - "${f%.markdown} strips the suffix."
+        - for f in ~/docs/*.markdown; do mv -- "$f" "${f%.markdown}.md"; done
+        - "-- protects against names that start with a dash."

@@ -1,0 +1,189 @@
+id: a16-kernel-modules
+level: advanced
+module: performance
+title: Kernel fundamentals and modules
+duration: 40
+objectives:
+  - Describe the kernel's responsibilities and the user/kernel boundary
+  - List, inspect, load, unload and blacklist kernel modules
+  - Read and set kernel parameters with sysctl, persistently
+  - Use /proc, /sys and dmesg to investigate the kernel
+
+sections:
+  - title: The kernel
+    content: |
+      The kernel manages processes (scheduling), memory (virtual memory, page cache),
+      devices (drivers), filesystems and networking.  Programs ask it for services through
+      **system calls** (open, read, fork, ...); `strace cmd` shows them.
+
+      ```
+      uname -r                   # running kernel release
+      ls /boot                   # installed kernels and initramfs images
+      cat /proc/version
+      ```
+
+      Ubuntu installs new kernels as packages (`linux-image-*`) and keeps the previous one
+      as a fallback; reboot to use a new kernel.
+  - title: Modules
+    content: |
+      Most drivers are **loadable modules** (`.ko` files under `/lib/modules/$(uname -r)`),
+      loaded on demand by udev:
+
+      ```
+      lsmod                            # loaded modules (reads /proc/modules)
+      modinfo e1000e                   # description, parameters, dependencies
+      sudo modprobe dummy numdummies=2 # load with dependencies and parameters
+      sudo modprobe -r dummy           # unload
+      ```
+
+      Configuration in **/etc/modprobe.d/*.conf**:
+
+      ```
+      blacklist pcspkr                 # never auto-load the PC speaker driver
+      options snd-hda-intel power_save=1
+      install usb-storage /bin/false   # make loading impossible (e.g. USB sticks)
+      ```
+
+      Modules to load at boot: `/etc/modules-load.d/*.conf`.
+
+      :::note
+      The laboratory shares the host's kernel, so loading and unloading modules is not
+      possible there (and would affect your real computer).  `lsmod`, `/proc`, `/sys` and
+      the configuration files work normally.
+      :::
+  - title: Kernel parameters - sysctl
+    content: |
+      Thousands of tunables live under `/proc/sys`; `sysctl` reads and writes them:
+
+      ```
+      sysctl net.ipv4.ip_forward
+      sudo sysctl -w net.ipv4.ip_forward=1          # now (lost at reboot)
+      echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/90-router.conf
+      sudo sysctl --system                          # load all sysctl.d files
+      ```
+
+      Common ones: `net.ipv4.ip_forward` (routing), `vm.swappiness`,
+      `fs.file-max`, `net.ipv4.tcp_syncookies`, `kernel.dmesg_restrict`.
+
+      In the lab, network parameters (`net.*`) are private to the lab and writable; global
+      ones (`vm.*`, `kernel.*`) belong to the host and are read-only.
+  - title: /proc, /sys and dmesg
+    content: |
+      * `/proc/PID/...` - per-process information; `/proc/meminfo`, `/proc/cpuinfo`,
+        `/proc/interrupts`, `/proc/cmdline`.
+      * `/sys` - devices, drivers and their attributes (`/sys/class/net/*/address`).
+      * `dmesg` / `journalctl -k` - the kernel ring buffer: driver messages, hardware
+        errors, OOM kills.  `dmesg -T --level=err,warn`.
+
+exercises:
+  - id: sysctl-persist
+    title: Turn the lab into a router - permanently
+    instructions: |
+      Enable **IPv4 forwarding** (`net.ipv4.ip_forward = 1`):
+
+      * **now** - the running value must be 1;
+      * **permanently** - in a file in **/etc/sysctl.d/**.
+    setup: |
+      sysctl -qw net.ipv4.ip_forward=0 2>/dev/null; grep -l ip_forward /etc/sysctl.d/*.conf 2>/dev/null | xargs -r rm -f
+    reference: |
+      echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/90-forward.conf
+      sudo sysctl --system
+    alternatives: ["sudo sysctl -w net.ipv4.ip_forward=1 && echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/60-router.conf"]
+    wrong:
+      - {run: sudo sysctl -w net.ipv4.ip_forward=1, expect: partial}
+    checks:
+      - {type: command, run: "sysctl -n net.ipv4.ip_forward", stdout_equals: "1"}
+      - {type: command, run: "grep -hE '^\\s*net\\.ipv4\\.ip_forward\\s*=\\s*1\\s*$' /etc/sysctl.d/*.conf | wc -l", stdout_regex: '^[1-9]',
+         fail: "No file in /etc/sysctl.d sets net.ipv4.ip_forward = 1 - the change would be lost at reboot."}
+    hints:
+      - "Two parts: the running kernel, and a configuration file read at boot."
+      - "sysctl -w changes it now; a line in /etc/sysctl.d/NAME.conf makes it permanent."
+      - "echo 'net.ipv4.ip_forward = 1' | sudo tee /etc/sysctl.d/90-forward.conf && sudo sysctl --system"
+      - "sysctl --system loads every file in /etc/sysctl.d, so one command handles both parts."
+  - id: blacklist
+    title: Ban a module
+    instructions: |
+      Company policy forbids USB storage.  Create **/etc/modprobe.d/no-usb-storage.conf**
+      that both **blacklists** the module **usb-storage** and makes any attempt to load it
+      **fail** (`install usb-storage /bin/false`).
+    setup: rm -f /etc/modprobe.d/no-usb-storage.conf
+    reference: printf 'blacklist usb-storage\ninstall usb-storage /bin/false\n' | sudo tee /etc/modprobe.d/no-usb-storage.conf
+    checks:
+      - {type: file_contains, path: /etc/modprobe.d/no-usb-storage.conf, regex: ['^\s*blacklist\s+usb[-_]storage\s*$', '^\s*install\s+usb[-_]storage\s+/(usr/)?bin/(false|true)\s*$']}
+      - {type: command, run: "modprobe --showconfig 2>/dev/null | grep -E '^(blacklist usb_storage|install usb_storage)' | sort | uniq | wc -l", stdout_equals: "2",
+         fail: "modprobe does not see both rules - check the spelling."}
+    hints:
+      - Two directives in one file in /etc/modprobe.d.
+      - "blacklist stops automatic loading; install ... /bin/false makes explicit loading fail."
+      - "printf 'blacklist usb-storage\\ninstall usb-storage /bin/false\\n' | sudo tee /etc/modprobe.d/no-usb-storage.conf"
+      - "modprobe --showconfig | grep usb_storage confirms that modprobe parsed both rules."
+  - id: loaded
+    title: Is it loaded?
+    instructions: |
+      How many kernel modules are currently loaded (as listed by `lsmod`, excluding the
+      header line)?  Type the number.
+    answer_prompt: "Number of modules:"
+    reference: lsmod | tail -n +2 | wc -l
+    checks:
+      - {type: answer, command: "tail -n +1 /proc/modules | wc -l"}
+    hints:
+      - lsmod lists one module per line after a header.
+      - Count the lines and subtract the header, or count /proc/modules.
+      - lsmod | tail -n +2 | wc -l
+      - "lsmod reads /proc/modules, which has exactly one line per module."
+
+quiz:
+  questions:
+    - id: q-syscall
+      type: mcq
+      topic: The kernel
+      prompt: How does a program ask the kernel to open a file?
+      options: [Through a system call, By writing to /dev/kernel, Through systemd, It reads the disk directly]
+      answer: 0
+    - id: q-modprobe
+      type: mcq
+      topic: Modules
+      prompt: Why prefer modprobe over insmod?
+      options: [It is faster, It resolves and loads dependencies and reads /etc/modprobe.d, It works without root, insmod is deprecated]
+      answer: 1
+    - id: q-sysctl-persist
+      type: truefalse
+      topic: Kernel parameters - sysctl
+      prompt: A value set with sysctl -w survives a reboot.
+      answer: false
+    - id: q-dmesg
+      type: troubleshoot
+      topic: /proc, /sys and dmesg
+      prompt: A process disappeared without an error in its own log.  Where might you find "Out of memory - Killed process 4711"?
+      options: [/etc/passwd, The kernel log - dmesg or journalctl -k, ~/.bash_history, /proc/cpuinfo]
+      answer: 1
+    - id: q-modinfo
+      type: short
+      topic: Modules
+      prompt: Which command shows the description and parameters of a module?
+      answer: [modinfo]
+    - id: q-system
+      type: short
+      topic: Kernel parameters - sysctl
+      prompt: Which sysctl option loads the settings from all configuration directories (sysctl.d)?
+      answer: ["--system", "sysctl --system", "sudo sysctl --system"]
+    - id: q-practical
+      type: practical
+      title: Disable ICMP redirects
+      topic: Kernel parameters - sysctl
+      prompt: |
+        Set **net.ipv4.conf.all.accept_redirects = 0** both at runtime and persistently in
+        **/etc/sysctl.d/80-hardening.conf**.
+      setup: |
+        sysctl -qw net.ipv4.conf.all.accept_redirects=1 2>/dev/null; rm -f /etc/sysctl.d/80-hardening.conf
+      reference: |
+        echo 'net.ipv4.conf.all.accept_redirects = 0' | sudo tee /etc/sysctl.d/80-hardening.conf
+        sudo sysctl -p /etc/sysctl.d/80-hardening.conf
+      checks:
+        - {type: command, run: "sysctl -n net.ipv4.conf.all.accept_redirects", stdout_equals: "0"}
+        - {type: file_contains, path: /etc/sysctl.d/80-hardening.conf, regex: '^\s*net\.ipv4\.conf\.all\.accept_redirects\s*=\s*0\s*$'}
+      hints:
+        - Same pattern as IP forwarding - a file and a reload.
+        - "sysctl -p FILE loads one file."
+        - "echo 'net.ipv4.conf.all.accept_redirects = 0' | sudo tee /etc/sysctl.d/80-hardening.conf && sudo sysctl -p /etc/sysctl.d/80-hardening.conf"
+        - "Ignoring ICMP redirects prevents an attacker on the local network from rerouting your traffic."

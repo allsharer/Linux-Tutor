@@ -1,0 +1,161 @@
+id: i21-cron
+level: intermediate
+module: operations
+title: Scheduling tasks using cron
+duration: 30
+objectives:
+  - Read and write crontab schedule expressions
+  - Manage personal crontabs with crontab -e / -l
+  - Know the system-wide cron locations
+  - Make cron jobs reliable (paths, environment, output, at)
+
+sections:
+  - title: The cron daemon
+    content: |
+      **cron** runs commands on a schedule: nightly backups, hourly reports, weekly
+      clean-ups.  Each user has a **crontab**; the cron daemon checks every minute.
+
+      ```
+      crontab -e          # edit your crontab (opens $EDITOR)
+      crontab -l          # list it
+      crontab -r          # remove it (careful!)
+      sudo crontab -u alice -l
+      ```
+  - title: Schedule syntax
+    content: |
+      ```
+      ┌──────── minute (0-59)
+      │ ┌────── hour (0-23)
+      │ │ ┌──── day of month (1-31)
+      │ │ │ ┌── month (1-12)
+      │ │ │ │ ┌ day of week (0-7, 0 and 7 = Sunday)
+      │ │ │ │ │
+      30 2 * * *  /usr/local/bin/backup.sh
+      ```
+
+      | Expression | Runs |
+      |---|---|
+      | `*/15 * * * *` | every 15 minutes |
+      | `0 9-17 * * 1-5` | on the hour, 9:00-17:00, Monday-Friday |
+      | `0 0 1 * *` | midnight on the first of each month |
+      | `30 3 * * 0` | 03:30 every Sunday |
+      | `@reboot` | once at boot (also `@daily`, `@hourly`, `@weekly`) |
+
+      :::tip
+      Unsure?  Websites such as crontab.guru translate expressions into words - or read
+      `man 5 crontab`.
+      :::
+  - title: System cron and reliability
+    content: |
+      System jobs live in `/etc/crontab` and `/etc/cron.d/*` (these have an extra **user**
+      field after the schedule), and in the directories `/etc/cron.hourly`, `cron.daily`,
+      `cron.weekly`, `cron.monthly` (scripts run by run-parts).
+
+      Cron runs jobs with a **minimal environment** - a common source of "it works in my
+      terminal but not in cron":
+
+      * use **absolute paths** (`/usr/bin/rsync`) or set `PATH=` at the top of the crontab;
+      * redirect output: `>> /var/log/backup.log 2>&1` (otherwise cron tries to mail it);
+      * `%` is special in crontab lines - escape it as `\%` (e.g. in `date +\%F`).
+
+      For a **one-off** job use `at`: `echo "reboot" | sudo at 02:00`.  systemd **timers**
+      are the modern alternative (Advanced level).
+
+exercises:
+  - id: nightly
+    title: Schedule a nightly backup
+    instructions: |
+      Add a job to **your** crontab that runs **/home/student/bin/backup.sh** every day at
+      **02:30**.
+    setup: |
+      crontab -r -u student 2>/dev/null; mkdir -p {home}/bin
+      printf '#!/bin/bash\ntar czf /tmp/backup-$(date +%%F).tgz /home/student/Documents 2>/dev/null\n' > {home}/bin/backup.sh
+      chmod 755 {home}/bin/backup.sh; chown -R student: {home}/bin
+    reference: (crontab -l 2>/dev/null; echo "30 2 * * * /home/student/bin/backup.sh") | crontab -
+    alternatives: ['echo "30 2 * * * $HOME/bin/backup.sh >> $HOME/backup.log 2>&1" | crontab -']
+    wrong:
+      - {run: 'echo "2 30 * * * /home/student/bin/backup.sh" | crontab -', expect: incorrect}
+    checks:
+      - {type: crontab_contains, user: student, regex: '^\s*30\s+0?2\s+\*\s+\*\s+\*\s+(/home/student|~|\$HOME)/bin/backup\.sh'}
+    diagnostics:
+      - when: {type: crontab_contains, user: student, regex: '^\s*0?2\s+30\s'}
+        message: The minute and hour fields are swapped - the first field is the minute (30), the second the hour (2).
+    hints:
+      - The schedule has five fields - minute first.
+      - "02:30 daily = 30 2 * * *. Edit your crontab with crontab -e."
+      - "crontab -e, then add the line: 30 2 * * * /home/student/bin/backup.sh"
+      - "Non-interactively: (crontab -l; echo '30 2 * * * /home/student/bin/backup.sh') | crontab -"
+  - id: every15
+    title: Every 15 minutes on weekdays
+    instructions: |
+      Add a crontab entry for student that runs **/usr/local/bin/healthcheck** every
+      **15 minutes**, but **only Monday to Friday**, and appends **all output** (stdout and
+      stderr) to **/home/student/health.log**.
+    setup: crontab -r -u student 2>/dev/null; true
+    reference: echo "*/15 * * * 1-5 /usr/local/bin/healthcheck >> /home/student/health.log 2>&1" | crontab -
+    alternatives: ['echo "0,15,30,45 * * * mon-fri /usr/local/bin/healthcheck >> /home/student/health.log 2>&1" | crontab -']
+    checks:
+      - type: crontab_contains
+        user: student
+        regex: '^\s*(\*/15|0,15,30,45)\s+\*\s+\*\s+\*\s+(1-5|mon-fri|MON-FRI)\s+/usr/local/bin/healthcheck\s+>>\s*/home/student/health\.log\s+2>&1'
+        fail: "No entry matches: */15 minutes, weekdays 1-5, /usr/local/bin/healthcheck >> /home/student/health.log 2>&1."
+    hints:
+      - "Minute field */15; day-of-week field 1-5."
+      - ">> appends stdout; 2>&1 adds stderr."
+      - "*/15 * * * 1-5 /usr/local/bin/healthcheck >> /home/student/health.log 2>&1"
+      - "Add that line with crontab -e; crontab -l shows it."
+
+quiz:
+  questions:
+    - id: q-fields
+      type: interpret
+      topic: Schedule syntax
+      prompt: When does this job run?
+      output: "0 6 * * 1 /usr/local/bin/weekly-report"
+      options: [Every day at 06:00, At 06:00 every Monday, At 00:06 on the 1st, Every 6 hours]
+      answer: 1
+    - id: q-every
+      type: mcq
+      topic: Schedule syntax
+      prompt: Which expression runs a job every 10 minutes?
+      options: ["10 * * * *", "*/10 * * * *", "* */10 * * *", "0 10 * * *"]
+      answer: 1
+    - id: q-env
+      type: troubleshoot
+      topic: System cron and reliability
+      prompt: A script works in the terminal but fails under cron with "command not found".  Most likely cause?
+      options: [cron is not running, Cron's minimal PATH - use absolute paths or set PATH in the crontab, The script is too long, cron needs sudo]
+      answer: 1
+    - id: q-list
+      type: short
+      topic: The cron daemon
+      prompt: Which command lists your crontab?
+      answer: ["crontab -l"]
+    - id: q-crond
+      type: truefalse
+      topic: System cron and reliability
+      prompt: Lines in /etc/cron.d/ files contain a user name field after the schedule; personal crontabs do not.
+      answer: true
+    - id: q-at
+      type: mcq
+      topic: System cron and reliability
+      prompt: Which tool schedules a command to run ONCE at a given time?
+      options: [cron, at, nohup, watch]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Monthly cleanup
+      topic: Schedule syntax
+      prompt: |
+        Schedule **/usr/local/bin/cleanup** to run at **midnight on the first day of every
+        month**, in student's crontab.
+      setup: crontab -r -u student 2>/dev/null; true
+      reference: echo "0 0 1 * * /usr/local/bin/cleanup" | crontab -
+      alternatives: ['echo "@monthly /usr/local/bin/cleanup" | crontab -']
+      checks:
+        - {type: crontab_contains, user: student, regex: '^\s*(0\s+0\s+1\s+\*\s+\*|@monthly)\s+/usr/local/bin/cleanup'}
+      hints:
+        - Minute 0, hour 0, day-of-month 1.
+        - "0 0 1 * * - or the shortcut @monthly."
+        - echo "0 0 1 * * /usr/local/bin/cleanup" | crontab -
+        - "crontab - reads a new crontab from stdin (replacing the old one); crontab -e edits interactively."

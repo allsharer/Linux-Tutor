@@ -1,0 +1,178 @@
+id: i17-disk-usage
+level: intermediate
+module: storage
+title: Disk usage and storage management
+duration: 30
+objectives:
+  - Check filesystem space and inode usage with df
+  - Find what uses space with du, sort and ncdu
+  - Compress and archive with tar, gzip and xz
+  - Handle a full disk methodically
+
+sections:
+  - title: How full is it?
+    content: |
+      ```
+      $ df -hT
+      Filesystem     Type   Size  Used Avail Use% Mounted on
+      /dev/sda1      ext4    48G   45G  1.2G  98% /
+      tmpfs          tmpfs  1.9G     0  1.9G   0% /dev/shm
+      ```
+
+      A filesystem can also run out of **inodes** (one per file) while space remains -
+      typical with millions of tiny files.  Check with `df -i`.
+
+      `lsblk` shows block devices and partitions; `findmnt` shows the mount tree.
+  - title: What is using the space?
+    content: |
+      ```
+      du -sh /var/*                       # size of each item in /var
+      du -h --max-depth=1 /home | sort -h # one level deep, sorted human sizes
+      du -ah ~ | sort -rh | head -20      # the 20 biggest files and dirs
+      find / -xdev -size +500M 2>/dev/null
+      ```
+
+      `ncdu` (in the lab repository) is an interactive, navigable du.
+
+      :::tip
+      Common culprits: logs in /var/log, package caches (`sudo apt clean`), old kernels,
+      core dumps, forgotten backups, Docker/Podman images, and **deleted files still held
+      open by a process** (`sudo lsof +L1`) - their space is only freed when the process
+      closes them.
+      :::
+  - title: Archiving and compression
+    content: |
+      **tar** bundles files into one archive; a compressor shrinks it:
+
+      | Command | Effect |
+      |---|---|
+      | `tar czf site.tar.gz site/` | create, gzip-compressed |
+      | `tar cJf site.tar.xz site/` | create, xz (smaller, slower) |
+      | `tar tzf site.tar.gz` | list contents |
+      | `tar xzf site.tar.gz -C /dest` | extract into /dest |
+      | `gzip big.log` / `gunzip big.log.gz` | compress / decompress one file |
+      | `zip -r site.zip site/` / `unzip` | ZIP format, for other systems |
+
+      Letters: **c**reate, e**x**tract, lis**t**, **f** file name follows, **z** gzip,
+      **J** xz, **j** bzip2, **v** verbose.
+    examples:
+      - command: tar czf /tmp/etc-backup.tar.gz -C / etc/hostname etc/hosts
+        explanation: Archive two files with paths relative to /.
+      - command: tar tzvf /tmp/etc-backup.tar.gz
+        explanation: List what is inside.
+
+exercises:
+  - id: biggest-dir
+    title: Find the space hog
+    instructions: |
+      One directory directly under **/srv/storage** uses far more space than the others.
+      Type its **name** (just the name, not the path).
+    answer_prompt: "Directory name:"
+    setup: |
+      rm -rf /srv/storage; mkdir -p /srv/storage/{alpha,beta,gamma,delta}
+      fallocate -l 2M /srv/storage/alpha/a.bin; fallocate -l 3M /srv/storage/beta/b.bin
+      fallocate -l 40M /srv/storage/gamma/cache.bin; fallocate -l 1M /srv/storage/delta/d.bin
+    reference: du -sh /srv/storage/*
+    test_answer: gamma
+    checks:
+      - {type: answer, equals: gamma}
+    hints:
+      - Measure each sub-directory.
+      - du -sh with a wildcard summarises every directory.
+      - du -sh /srv/storage/* | sort -h
+      - "du -sh /srv/storage/* shows gamma at 40M."
+  - id: archive
+    title: Archive a project
+    instructions: |
+      Create a **gzip-compressed tar archive** **~/project-backup.tar.gz** that contains the
+      directory **~/project** (the archive must list paths beginning with `project/`).
+    setup: |
+      rm -rf {home}/project {home}/project-backup.tar.gz; mkdir -p {home}/project/src
+      echo "print('hi')" > {home}/project/src/main.py; echo "# Project" > {home}/project/README.md
+      chown -R student: {home}/project
+    reference: cd ~ && tar czf project-backup.tar.gz project
+    alternatives: ['tar czf ~/project-backup.tar.gz -C ~ project']
+    checks:
+      - {type: command, run: "file -b /home/student/project-backup.tar.gz", stdout_contains: gzip,
+         fail: "~/project-backup.tar.gz is not gzip-compressed (use the z option)."}
+      - {type: command, run: "tar tzf /home/student/project-backup.tar.gz", stdout_contains: [project/src/main.py, project/README.md],
+         fail: "The archive does not contain project/src/main.py and project/README.md with paths starting at project/."}
+    diagnostics:
+      - when: {type: command, run: "tar tzf /home/student/project-backup.tar.gz | grep -q '^home/student/project'", exit_code: 0}
+        message: The archive stores home/student/project/... - archive from your home directory (cd ~) or use -C ~ so paths start at project/.
+    hints:
+      - tar creates archives; one letter adds gzip compression.
+      - "c = create, z = gzip, f = file name. Run it from your home directory."
+      - cd ~ && tar czf project-backup.tar.gz project
+      - "tar tzf ~/project-backup.tar.gz lists project/, project/src/main.py ... - relative paths make the archive easy to restore anywhere."
+  - id: extract
+    title: Restore one file
+    instructions: |
+      **~/site-backup.tar.gz** contains a website.  Extract **only** the file
+      **site/config/settings.ini** from it into your home directory (so that
+      ~/site/config/settings.ini exists).  Do not extract anything else.
+    setup: |
+      rm -rf /tmp/sb {home}/site; mkdir -p /tmp/sb/site/config /tmp/sb/site/html
+      echo "debug=false" > /tmp/sb/site/config/settings.ini; echo "<h1>hi</h1>" > /tmp/sb/site/html/index.html
+      tar czf {home}/site-backup.tar.gz -C /tmp/sb site; chown student: {home}/site-backup.tar.gz
+    reference: cd ~ && tar xzf site-backup.tar.gz site/config/settings.ini
+    checks:
+      - {type: file_contains, path: ~/site/config/settings.ini, text: debug=false}
+    constraints:
+      - {type: not_exists, path: ~/site/html/index.html, fail: "Everything was extracted - name the single member to extract."}
+    hints:
+      - tar can extract individual members if you name them.
+      - "tar xzf ARCHIVE path/inside/archive"
+      - cd ~ && tar xzf site-backup.tar.gz site/config/settings.ini
+      - "List the archive first (tar tzf) to see the exact member name; then extract just that path."
+
+quiz:
+  questions:
+    - id: q-inodes
+      type: troubleshoot
+      topic: How full is it?
+      prompt: "df -h shows 40% used, yet creating a file fails with 'No space left on device'.  What should you check?"
+      options: [df -i - the filesystem may be out of inodes, The CPU, The network, free -h]
+      answer: 0
+    - id: q-du-df
+      type: mcq
+      topic: What is using the space?
+      prompt: Which command tells you how much space a directory tree uses?
+      options: [df, du, lsblk, mount]
+      answer: 1
+    - id: q-deleted
+      type: truefalse
+      topic: What is using the space?
+      prompt: Deleting a large log file that a running process still has open frees the space immediately.
+      answer: false
+    - id: q-tar-list
+      type: short
+      topic: Archiving and compression
+      prompt: Which tar command lists the contents of logs.tar.gz without extracting it?
+      answer: ["tar tzf logs.tar.gz", "tar -tzf logs.tar.gz", "tar tf logs.tar.gz", "re:tar\\s+-?t[vz]*f\\s+logs\\.tar\\.gz|tar\\s+-?tv?zv?f\\s+logs\\.tar\\.gz"]
+    - id: q-xz
+      type: mcq
+      topic: Archiving and compression
+      prompt: Which tar option selects xz compression?
+      options: [z, j, J, x]
+      answer: 2
+    - id: q-practical
+      type: practical
+      title: Compress old logs
+      topic: Archiving and compression
+      prompt: |
+        Compress every **.log** file in **~/oldlogs** with **gzip** (each file becomes
+        `NAME.log.gz`; the uncompressed .log files must be gone).
+      setup: |
+        rm -rf {home}/oldlogs; mkdir -p {home}/oldlogs
+        for d in mon tue wed; do seq 1 2000 > {home}/oldlogs/$d.log; done; chown -R student: {home}/oldlogs
+      reference: gzip ~/oldlogs/*.log
+      checks:
+        - {type: command, run: "ls /home/student/oldlogs/*.log 2>/dev/null | wc -l", stdout_equals: "0"}
+        - {type: command, run: "ls /home/student/oldlogs/*.log.gz | wc -l", stdout_equals: "3"}
+        - {type: command, run: "zcat /home/student/oldlogs/tue.log.gz | tail -1", stdout_equals: "2000"}
+      hints:
+        - gzip replaces each file with a compressed .gz version.
+        - gzip accepts several files at once.
+        - gzip ~/oldlogs/*.log
+        - "gzip compresses each file in place; zcat shows the content without decompressing."

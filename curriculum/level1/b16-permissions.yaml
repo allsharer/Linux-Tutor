@@ -1,0 +1,212 @@
+id: b16-permissions
+level: beginner
+module: users-security
+title: Basic file permissions
+duration: 30
+objectives:
+  - Read the permission string in ls -l output
+  - Explain read, write and execute for files and for directories
+  - Change permissions with chmod using symbolic notation
+  - Understand octal notation such as 644 and 755
+
+sections:
+  - title: Reading ls -l
+    content: |
+      ```
+      $ ls -l script.sh notes.txt
+      -rwxr-xr-- 1 student developers 120 Mar  3 10:12 script.sh
+      -rw-r--r-- 1 student student     45 Mar  3 10:10 notes.txt
+      ```
+
+      The first column is the **mode**.  Its first character is the file type (`-`
+      regular file, `d` directory, `l` symbolic link).  The other nine characters are
+      three groups of three:
+
+      ```
+       -   rwx   r-x   r--
+       |    |     |     |
+      type  user  group other
+           (owner)
+      ```
+
+      Each triplet says whether **r**ead, **w**rite and e**x**ecute are allowed (`-`
+      means not allowed) for the file's **owner**, members of the file's **group**,
+      and **others** (everyone else).  Columns 3 and 4 show the owner and group.
+  - title: What r, w and x mean
+    content: |
+      | | On a file | On a directory |
+      |---|---|---|
+      | **r** | read the content | list the names in it (`ls`) |
+      | **w** | change the content | create, delete and rename entries in it |
+      | **x** | run it as a program | enter it (`cd`) and reach files inside it |
+
+      Notice the directory meanings.  Deleting a file requires write permission on
+      the **directory**, not on the file itself!
+
+      Linux checks the *first* category that applies: if you are the owner, only the
+      user triplet counts, even if the group triplet would allow more.
+    more: |
+      A directory with `x` but no `r` lets people open files inside it if they already
+      know the names, but not list them.  A directory with `r` but no `x` lets people
+      see names but not open anything - rarely useful.  Home directories are often
+      `drwxr-x---` (750) or `drwx------` (700).
+  - title: Changing permissions with chmod
+    content: |
+      The owner of a file (or root) can change its mode with `chmod`.  **Symbolic
+      notation** reads like a sentence - who, add/remove/set, which permission:
+
+      ```
+      chmod u+x script.sh        # user (owner) gains execute
+      chmod g-w report.txt       # group loses write
+      chmod o-r private.txt      # others lose read
+      chmod a+r public.txt       # all (u, g and o) gain read
+      chmod go= secret.txt       # group and others: no permissions at all
+      chmod u=rw,go=r notes.txt  # set exactly
+      ```
+
+      Letters: **u** user, **g** group, **o** others, **a** all; **+** add, **-**
+      remove, **=** set exactly.
+    examples:
+      - command: touch demo.sh && ls -l demo.sh
+        explanation: A new file is not executable.
+      - command: chmod u+x demo.sh && ls -l demo.sh
+        explanation: Now the owner may run it.
+  - title: Octal notation
+    content: |
+      Each triplet can also be written as one digit: **r = 4, w = 2, x = 1**, added up.
+
+      | Digits | Mode | Typical use |
+      |---|---|---|
+      | `644` | `rw-r--r--` | ordinary files |
+      | `600` | `rw-------` | private files (SSH keys, passwords) |
+      | `755` | `rwxr-xr-x` | programs, scripts and directories |
+      | `700` | `rwx------` | private directories |
+
+      `chmod 640 file` sets the mode to `rw-r-----` in one step.  `stat -c %a file`
+      prints a file's octal mode.
+
+      :::warning
+      `chmod 777` (everyone may do everything) is almost never the right answer.  It
+      "fixes" permission errors by removing all protection.
+      :::
+
+exercises:
+  - id: make-executable
+    title: Make a script executable
+    instructions: |
+      The script **~/hello.sh** cannot be run yet (`./hello.sh` gives *Permission denied*).
+      Make it executable **for its owner**, then run it.
+    setup: |
+      printf '#!/bin/bash\necho "Hello from a script"\n' > {home}/hello.sh
+      chmod 644 {home}/hello.sh; chown student: {home}/hello.sh
+    reference: chmod u+x ~/hello.sh
+    alternatives: ['chmod 744 ~/hello.sh', 'chmod +x ~/hello.sh', 'chmod 755 ~/hello.sh']
+    checks:
+      - {type: mode, path: ~/hello.sh, has: u+x}
+      - {type: script, path: ~/hello.sh, stdout_contains: Hello from a script}
+    constraints:
+      - {type: mode, path: ~/hello.sh, lacks: o+w, fail: "Others can now write to the script. Never give write permission to everyone - chmod 777 is not a fix."}
+    wrong:
+      - {run: chmod 777 ~/hello.sh, expect: correct_side_effects}
+    hints:
+      - Running a program needs a particular permission.
+      - The execute permission (x) is added with chmod; u means the owner.
+      - chmod u+x ~/hello.sh
+      - "chmod u+x adds execute for the owner. Then ./hello.sh (in your home) prints the greeting."
+  - id: private-file
+    title: Make a file private
+    instructions: |
+      **~/diary.txt** is readable by everyone.  Change its permissions so that **only you
+      (the owner) can read and write it**, and nobody else has any access: mode `rw-------`.
+    setup: |
+      echo "secret thoughts" > {home}/diary.txt; chmod 644 {home}/diary.txt; chown student: {home}/diary.txt
+    reference: chmod 600 ~/diary.txt
+    alternatives: ['chmod go= ~/diary.txt', 'chmod u=rw,go-rwx ~/diary.txt']
+    checks:
+      - {type: mode, path: ~/diary.txt, mode: "600"}
+    diagnostics:
+      - when: {type: mode, path: ~/diary.txt, mode: "400"}
+        message: You removed your own write permission too - the owner should keep rw.
+      - when: {type: mode, path: ~/diary.txt, mode: "640"}
+        message: The group can still read the file. Remove group permissions as well (g-r or go=).
+    hints:
+      - Group and others must lose all permissions; the owner keeps read and write.
+      - "In octal: owner rw = 4+2 = 6, group 0, others 0."
+      - chmod 600 ~/diary.txt
+      - "chmod 600 sets rw------- ; chmod go= ~/diary.txt achieves the same by removing everything from group and others."
+  - id: read-mode
+    title: Interpret a permission string
+    instructions: |
+      Look at the permissions of **/opt/shared/plan.txt**.  Can members of the file's
+      group **write** to it?  Then find its mode in **octal** and type it (three digits).
+    answer_prompt: "Octal mode:"
+    setup: |
+      mkdir -p /opt/shared && echo plan > /opt/shared/plan.txt && chmod 664 /opt/shared/plan.txt
+    reference: ls -l /opt/shared/plan.txt
+    checks:
+      - {type: answer, command: "stat -c %a /opt/shared/plan.txt"}
+    hints:
+      - Look at the long listing and convert each triplet to a number.
+      - r=4, w=2, x=1 - add them for user, group and others.
+      - ls -l /opt/shared/plan.txt    (or stat -c %a /opt/shared/plan.txt)
+      - "rw-rw-r-- = 6 6 4, so 664: the group can write."
+
+quiz:
+  questions:
+    - id: q-triplets
+      type: interpret
+      topic: Reading ls -l
+      prompt: What may members of the group do with this file?
+      output: "-rw-r----- 1 alice finance 2300 Jan 9 report.xlsx"
+      options: [Read and write, Read only, Nothing, Read, write and execute]
+      answer: 1
+    - id: q-octal
+      type: mcq
+      topic: Octal notation
+      prompt: Which octal mode is rwxr-xr-x?
+      options: ["644", "755", "775", "700"]
+      answer: 1
+    - id: q-dir-w
+      type: truefalse
+      topic: What r, w and x mean
+      prompt: To delete a file you need write permission on the directory that contains it.
+      answer: true
+    - id: q-dir-x
+      type: mcq
+      topic: What r, w and x mean
+      prompt: What does the x permission on a directory allow?
+      options: [Running the directory as a program, Entering the directory and accessing files inside, Listing names only, Deleting the directory]
+      answer: 1
+    - id: q-chmod
+      type: short
+      topic: Changing permissions with chmod
+      prompt: Write a chmod command (symbolic) that removes write permission for others from data.csv.
+      answer: ["chmod o-w data.csv", "re:chmod\\s+o-w\\s+data\\.csv"]
+    - id: q-777
+      type: troubleshoot
+      topic: Octal notation
+      prompt: A colleague "fixes" a web page error with `chmod -R 777 /var/www`.  Why is that bad?
+      options:
+        - It is fine - it makes everything work
+        - Every user and every process can now modify or replace the website's files
+        - It makes the files read-only
+        - 777 is not a valid mode
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Set up a shared document
+      topic: Changing permissions with chmod
+      prompt: |
+        Set the permissions of **~/team-notes.txt** so that the owner can read and write,
+        the group can **read and write**, and others can **only read**.
+      setup: |
+        echo notes > {home}/team-notes.txt; chmod 600 {home}/team-notes.txt; chown student: {home}/team-notes.txt
+      reference: chmod 664 ~/team-notes.txt
+      alternatives: ['chmod u=rw,g=rw,o=r ~/team-notes.txt', 'chmod g+rw,o+r ~/team-notes.txt']
+      checks:
+        - {type: mode, path: ~/team-notes.txt, mode: "664"}
+      hints:
+        - Work out each triplet - user rw, group rw, others r.
+        - "rw = 6, r = 4."
+        - chmod 664 ~/team-notes.txt
+        - "664 means rw-rw-r--. The symbolic equivalent is chmod u=rw,g=rw,o=r ~/team-notes.txt."

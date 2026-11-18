@@ -1,0 +1,211 @@
+id: i18-mounting
+level: intermediate
+module: storage
+title: Mounting and unmounting filesystems
+duration: 35
+objectives:
+  - Explain mounting and mount points
+  - Mount and unmount filesystems with mount and umount
+  - Create a filesystem in an image file and mount it
+  - Make mounts permanent with /etc/fstab, safely
+
+sections:
+  - title: Attaching storage to the tree
+    content: |
+      Linux has one directory tree.  A disk, partition, USB stick, network share or RAM
+      disk becomes visible by **mounting** it on an existing directory, the **mount point**:
+
+      ```
+      /
+      ├── home          <- could be a separate partition
+      └── mnt
+          └── usb       <- mount point; after mounting, shows the stick's files
+      ```
+
+      Whatever was in the mount-point directory is hidden while something is mounted on it.
+
+      `findmnt` (tree view) and `mount` (list) show current mounts; `lsblk -f` shows block
+      devices with their filesystem types and UUIDs.
+  - title: mount and umount
+    content: |
+      ```
+      sudo mount /dev/sdb1 /mnt/usb              # type usually auto-detected
+      sudo mount -t ext4 -o ro /dev/sdb1 /mnt/usb  # explicit type, read-only
+      sudo mount -t tmpfs -o size=100m tmpfs /mnt/ram   # a RAM disk
+      sudo mount --bind /srv/data /var/www/data  # show a directory in a second place
+      sudo umount /mnt/usb                       # note: umount, not unmount
+      ```
+
+      `umount` fails with **target is busy** while a process uses the filesystem - perhaps
+      your own shell's current directory!  `lsof +f -- /mnt/usb` or `fuser -vm /mnt/usb`
+      shows who.
+  - title: Filesystems and image files
+    content: |
+      A **filesystem** (ext4, xfs, vfat, ...) is created on a device with `mkfs`:
+
+      ```
+      sudo mkfs.ext4 /dev/sdb1          # DESTROYS everything on sdb1!
+      ```
+
+      In the lab there are no spare disks, but a filesystem can live in an ordinary
+      **image file**:
+
+      ```
+      truncate -s 64M ~/disk.img        # a 64 MB file of zeros
+      mkfs.ext4 -q ~/disk.img           # put an ext4 filesystem in it
+      ```
+
+      On a real system you would `sudo mount -o loop ~/disk.img /mnt/disk`.  Loop devices
+      belong to the host kernel, so inside the lab container use the user-space driver
+      **fuse2fs** instead:
+
+      ```
+      sudo mkdir -p /mnt/disk
+      sudo fuse2fs -o fakeroot ~/disk.img /mnt/disk
+      sudo umount /mnt/disk
+      ```
+  - title: Permanent mounts with /etc/fstab
+    content: |
+      `/etc/fstab` lists filesystems to mount at boot, one per line:
+
+      ```
+      # device                                   mountpoint  type   options          dump pass
+      UUID=3f2a...-9c1e                          /data       ext4   defaults,noatime 0    2
+      tmpfs                                      /scratch    tmpfs  size=256m,mode=1777 0 0
+      ```
+
+      * identify disks by **UUID** (`blkid`), because /dev/sdX names can change;
+      * **pass**: 1 for /, 2 for other filesystems to check, 0 to skip;
+      * `nofail` lets the system boot even if the device is missing.
+
+      :::warning
+      A mistake in /etc/fstab can stop a server from booting.  After editing, run
+      `sudo mount -a` (mounts everything listed) and `sudo findmnt --verify` **before**
+      rebooting.
+      :::
+
+exercises:
+  - id: tmpfs
+    title: Mount a RAM disk
+    instructions: |
+      Mount a **tmpfs** filesystem with a size of **50 MB** on **/mnt/scratch**
+      (create the directory if needed).
+    setup: |
+      umount /mnt/scratch 2>/dev/null; rm -rf /mnt/scratch
+    cleanup: umount /mnt/scratch 2>/dev/null || true
+    reference: sudo mkdir -p /mnt/scratch && sudo mount -t tmpfs -o size=50m tmpfs /mnt/scratch
+    checks:
+      - {type: mounted, target: /mnt/scratch, fstype: tmpfs}
+      - {type: command, run: "findmnt -n -o SIZE /mnt/scratch", stdout_regex: '^\s*50M\s*$',
+         fail: "The tmpfs is mounted but its size is not 50M (use -o size=50m)."}
+    hints:
+      - "mount needs a type (-t), options (-o) and a mount point; tmpfs needs no device."
+      - "-t tmpfs -o size=50m; the source can be any name, conventionally tmpfs."
+      - sudo mkdir -p /mnt/scratch && sudo mount -t tmpfs -o size=50m tmpfs /mnt/scratch
+      - "findmnt /mnt/scratch or df -h /mnt/scratch confirms a 50M tmpfs."
+  - id: image-fs
+    title: A filesystem in a file
+    instructions: |
+      1. Create a **32 MB** image file **~/disk.img**.
+      2. Create an **ext4** filesystem in it with the **label** `labdisk` (`mkfs.ext4 -L`).
+      3. Mount it on **/mnt/disk** (use `fuse2fs` as explained in the lecture).
+      4. Create a file **/mnt/disk/hello.txt** containing `stored on my disk`.
+    setup: |
+      umount /mnt/disk 2>/dev/null; rm -f {home}/disk.img; mkdir -p /mnt/disk
+    cleanup: umount /mnt/disk 2>/dev/null || true
+    reference: |
+      truncate -s 32M ~/disk.img
+      mkfs.ext4 -q -L labdisk ~/disk.img
+      sudo fuse2fs -o fakeroot ~/disk.img /mnt/disk
+      echo "stored on my disk" | sudo tee /mnt/disk/hello.txt
+    checks:
+      - {type: command, run: "blkid -o value -s TYPE /home/student/disk.img", stdout_equals: ext4,
+         fail: "~/disk.img does not contain an ext4 filesystem."}
+      - {type: command, run: "blkid -o value -s LABEL /home/student/disk.img", stdout_equals: labdisk,
+         fail: "The filesystem label is not labdisk (mkfs.ext4 -L labdisk ...)."}
+      - {type: mounted, target: /mnt/disk}
+      - {type: file_contains, path: /mnt/disk/hello.txt, text: stored on my disk}
+    hints:
+      - "Four steps: make the file, make the filesystem, mount, write."
+      - truncate (or fallocate) makes the file; mkfs.ext4 -L sets a label; fuse2fs mounts it.
+      - "truncate -s 32M ~/disk.img; mkfs.ext4 -L labdisk ~/disk.img; sudo fuse2fs -o fakeroot ~/disk.img /mnt/disk"
+      - "Then: echo 'stored on my disk' | sudo tee /mnt/disk/hello.txt. After umount the file lives on inside disk.img."
+  - id: fstab
+    title: A permanent mount
+    instructions: |
+      Add a line to **/etc/fstab** so that a **tmpfs** of size **20m** is mounted on
+      **/srv/cache** at every boot, then mount it **using the fstab entry** (`sudo mount -a`
+      or `sudo mount /srv/cache`).  The directory /srv/cache must exist.
+    setup: |
+      umount /srv/cache 2>/dev/null; sed -i '\|/srv/cache|d' /etc/fstab; mkdir -p /srv/cache
+    cleanup: umount /srv/cache 2>/dev/null || true
+    reference: |
+      echo "tmpfs /srv/cache tmpfs size=20m 0 0" | sudo tee -a /etc/fstab
+      sudo mount /srv/cache
+    checks:
+      - {type: file_contains, path: /etc/fstab, regex: '^\s*\S+\s+/srv/cache\s+tmpfs\s+\S*size=20m'}
+      - {type: mounted, target: /srv/cache, fstype: tmpfs}
+    hints:
+      - "An fstab line has six fields: device, mount point, type, options, dump, pass."
+      - "For tmpfs the device field is just tmpfs; options size=20m; dump and pass 0."
+      - echo "tmpfs /srv/cache tmpfs size=20m 0 0" | sudo tee -a /etc/fstab
+      - "Then sudo mount /srv/cache - mount looks the rest up in fstab. Always test fstab changes with mount -a before rebooting."
+
+quiz:
+  questions:
+    - id: q-hidden
+      type: truefalse
+      topic: Attaching storage to the tree
+      prompt: Files that were in a directory before something is mounted on it are hidden while the mount is active.
+      answer: true
+    - id: q-busy
+      type: troubleshoot
+      topic: mount and umount
+      prompt: "`sudo umount /mnt/usb` says 'target is busy'.  What is a likely cause?"
+      options: [The USB stick is broken, A process (perhaps your shell) has its current directory or a file open there, umount needs -f always, The filesystem is ext4]
+      answer: 1
+    - id: q-uuid
+      type: mcq
+      topic: Permanent mounts with /etc/fstab
+      prompt: Why are UUIDs preferred over /dev/sdb1 in /etc/fstab?
+      options: [They are shorter, Device names like /dev/sdb can change between boots, UUIDs are faster, fstab does not support device names]
+      answer: 1
+    - id: q-mkfs
+      type: mcq
+      topic: Filesystems and image files
+      prompt: What does `mkfs.ext4 /dev/sdb1` do to existing data on sdb1?
+      options: [Keeps it, Destroys it - a new empty filesystem is created, Backs it up, Converts it to ext4]
+      answer: 1
+    - id: q-mounta
+      type: short
+      topic: Permanent mounts with /etc/fstab
+      prompt: Which command mounts all filesystems listed in /etc/fstab (useful to test your changes)?
+      answer: ["mount -a", "sudo mount -a"]
+    - id: q-fstab-line
+      type: interpret
+      topic: Permanent mounts with /etc/fstab
+      prompt: What does the option nofail do in this fstab line?
+      output: "UUID=1b2c... /backup ext4 defaults,nofail 0 2"
+      options: [Prevents write errors, The system boots normally even if this disk is missing, Disables fsck, Mounts it read-only]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Read-only bind mount
+      topic: mount and umount
+      prompt: |
+        Make the directory **/srv/docs** also visible at **/var/www/docs**, **read-only**,
+        using a bind mount.
+      setup: |
+        umount /var/www/docs 2>/dev/null; umount /var/www/docs 2>/dev/null
+        mkdir -p /srv/docs /var/www/docs; echo manual > /srv/docs/manual.txt
+      cleanup: umount /var/www/docs 2>/dev/null || true
+      reference: sudo mount --bind -o ro /srv/docs /var/www/docs
+      alternatives: ['sudo mount --bind /srv/docs /var/www/docs && sudo mount -o remount,ro,bind /var/www/docs']
+      checks:
+        - {type: mounted, target: /var/www/docs, options: [ro]}
+        - {type: file_contains, path: /var/www/docs/manual.txt, text: manual}
+      hints:
+        - A bind mount shows an existing directory in a second place.
+        - "mount --bind SOURCE TARGET, plus -o ro."
+        - sudo mount --bind -o ro /srv/docs /var/www/docs
+        - "findmnt /var/www/docs shows the ro option; writing there fails with 'Read-only file system'."

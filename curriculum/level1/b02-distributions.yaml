@@ -1,0 +1,176 @@
+id: b02-distributions
+level: beginner
+module: getting-started
+title: Understanding Linux distributions
+duration: 20
+objectives:
+  - Explain what a Linux distribution is
+  - Name the major distribution families and their differences
+  - Identify the distribution and version of a running system
+
+sections:
+  - title: What is a distribution?
+    content: |
+      The Linux kernel alone is not something you can use.  You also need a shell,
+      utilities, libraries, an installer, a way to install software, perhaps a
+      desktop, and security updates.
+
+      A **distribution** ("distro") is a complete, tested collection of all of that,
+      put together by a company or a community.  Each distribution chooses:
+
+      * which software versions to include and how often to update them;
+      * the **package manager** used to install software;
+      * default configuration, desktop and support policy.
+
+      ```
+           +-------------------- a distribution ---------------------+
+           | installer | package manager | desktop | tools | updates  |
+           |                 Linux kernel                             |
+           +----------------------------------------------------------+
+      ```
+  - title: The main families
+    content: |
+      Most distributions belong to one of a few families:
+
+      | Family | Examples | Package format / tool |
+      |---|---|---|
+      | Debian | **Debian, Ubuntu**, Linux Mint | `.deb` / `apt` |
+      | Red Hat | **Red Hat Enterprise Linux (RHEL)**, Fedora, Rocky, AlmaLinux | `.rpm` / `dnf` |
+      | SUSE | openSUSE, SUSE Linux Enterprise | `.rpm` / `zypper` |
+      | Independent | Arch Linux, Alpine, Gentoo | `pacman`, `apk`, `emerge` |
+
+      **Ubuntu**, which you are using, is based on Debian.  Ubuntu publishes a
+      **Long Term Support (LTS)** release every two years (for example 24.04 -
+      April 2024) with five years of updates, which is why it is popular on servers.
+
+      :::tip
+      90 % of what you learn in this course is identical on every distribution.
+      The differences are mostly in package management and some configuration files.
+      :::
+    more: |
+      Why so many distributions?  Because needs differ.  A bank wants stability and
+      paid support (RHEL, Ubuntu LTS).  A developer may want the newest software
+      (Fedora, Arch).  A container image wants to be tiny (Alpine).  Because the
+      source is open, anyone can build a distribution for their purpose.
+  - title: Which system am I on?
+    content: |
+      Every modern distribution describes itself in the file **/etc/os-release**.
+      You can display a file with `cat`:
+
+      ```
+      $ cat /etc/os-release
+      PRETTY_NAME="Ubuntu 24.04.1 LTS"
+      NAME="Ubuntu"
+      VERSION_ID="24.04"
+      VERSION_CODENAME=noble
+      ID=ubuntu
+      ID_LIKE=debian
+      ...
+      ```
+
+      `ID_LIKE=debian` tells you Ubuntu belongs to the Debian family.  The command
+      `lsb_release -a` shows similar information in a friendlier format.
+    examples:
+      - command: cat /etc/os-release
+        explanation: Shows the distribution's identification file.
+      - command: lsb_release -a
+        explanation: Linux Standard Base release information.
+
+exercises:
+  - id: which-distro
+    title: Identify the distribution
+    instructions: |
+      Find out the **version number** of the distribution running in your laboratory
+      (for example `22.04`).  Type it into the answer box.
+    answer_prompt: "Version (VERSION_ID):"
+    reference: cat /etc/os-release
+    checks:
+      - type: answer
+        command: . /etc/os-release && echo "$VERSION_ID"
+        fail: That is not the distribution's version number.  Look for VERSION_ID in /etc/os-release.
+    hints:
+      - Every distribution describes itself in a text file in /etc.
+      - The file is /etc/os-release. Display it with cat, or use lsb_release.
+      - cat /etc/os-release
+      - "cat /etc/os-release shows VERSION_ID, e.g. 24.04. lsb_release -r shows the same number."
+  - id: family
+    title: Which family?
+    instructions: |
+      Which distribution *family* does your laboratory belong to?  Find the value of
+      **ID_LIKE** in the identification file and type it in.
+    answer_prompt: "ID_LIKE:"
+    reference: grep ID_LIKE /etc/os-release
+    test_answer: debian
+    checks:
+      - type: answer
+        regex: '"?debian"?'
+        fail: Not quite - look at the ID_LIKE line of /etc/os-release.
+    hints:
+      - The same identification file contains a line naming the family.
+      - Look for ID_LIKE in /etc/os-release.
+      - cat /etc/os-release
+      - "ID_LIKE=debian - Ubuntu is part of the Debian family, so it uses .deb packages and apt."
+
+quiz:
+  questions:
+    - id: q-distro
+      type: mcq
+      topic: What is a distribution?
+      prompt: What is a Linux distribution?
+      options:
+        - A different kernel written by each company
+        - A complete operating system built around the Linux kernel, with tools, packages and updates
+        - A desktop theme for Linux
+        - A version of Windows that runs Linux programs
+      answer: 1
+    - id: q-family
+      type: mcq
+      topic: The main families
+      prompt: Which tool installs software on Ubuntu and Debian?
+      options: [dnf, apt, zypper, pacman]
+      answer: 1
+    - id: q-rhel
+      type: multi
+      topic: The main families
+      prompt: Which of these distributions belong to the Red Hat family?
+      options: [Fedora, Ubuntu, Rocky Linux, Linux Mint, AlmaLinux]
+      answer: [0, 2, 4]
+    - id: q-lts
+      type: truefalse
+      topic: The main families
+      prompt: Ubuntu LTS releases receive updates for several years, which makes them popular on servers.
+      answer: true
+    - id: q-osrel
+      type: short
+      topic: Which system am I on?
+      prompt: Which file in /etc describes the distribution on every modern Linux system? (full path)
+      answer: [/etc/os-release, "re:/?etc/os-release"]
+    - id: q-practical
+      type: practical
+      title: Record the distribution
+      topic: Which system am I on?
+      prompt: |
+        Create a file **~/distro.txt** that contains the distribution's PRETTY_NAME
+        (for example `Ubuntu 24.04.1 LTS`).  The file may contain the whole PRETTY_NAME
+        line or just the name.
+      setup: rm -f {home}/distro.txt
+      reference: grep PRETTY_NAME /etc/os-release > ~/distro.txt
+      alternatives: ['lsb_release -ds > ~/distro.txt', 'cat /etc/os-release > ~/distro.txt']
+      checks:
+        - type: file_exists
+          path: ~/distro.txt
+        - type: command
+          run: . /etc/os-release; grep -qF "$PRETTY_NAME" /home/student/distro.txt
+          exit_code: 0
+          fail: ~/distro.txt does not contain the distribution's name (PRETTY_NAME).
+      hints:
+        - You need the information from /etc/os-release saved into a new file.
+        - The > character saves a command's output into a file.  You will learn more about it later.
+        - grep PRETTY_NAME /etc/os-release > ~/distro.txt
+        - "grep picks the PRETTY_NAME line and > writes it to ~/distro.txt. lsb_release -ds > ~/distro.txt also works."
+
+references:
+  - title: os-release(5) manual page
+    url: https://www.freedesktop.org/software/systemd/man/os-release.html
+  - title: DistroWatch - overview of Linux distributions
+    url: https://distrowatch.com/

@@ -1,0 +1,196 @@
+id: i20-ssh
+level: intermediate
+module: network
+title: SSH fundamentals
+duration: 40
+objectives:
+  - Explain what SSH provides and how host keys protect you
+  - Log in and run remote commands with ssh
+  - Create a key pair and set up key-based authentication
+  - Copy files with scp and rsync, and use ~/.ssh/config
+
+sections:
+  - title: Secure Shell
+    content: |
+      **SSH** gives you an encrypted terminal on a remote machine - the standard way to
+      administer Linux servers.  It also copies files, forwards ports and runs remote
+      commands.
+
+      ```
+      ssh alice@server.example.org           # interactive login
+      ssh alice@server 'df -h /'             # run one command
+      ssh -p 2222 alice@server               # non-standard port
+      ```
+
+      The server runs **sshd** (package openssh-server); your client is `ssh`.
+
+      In your lab, sshd is installed but not running.  Start it with
+      `sudo systemctl start ssh` and you can practise by connecting to `localhost`.
+  - title: Host keys - who am I talking to?
+    content: |
+      On the first connection SSH shows the server's **host key fingerprint**:
+
+      ```
+      The authenticity of host 'server (10.0.0.5)' can't be established.
+      ED25519 key fingerprint is SHA256:3f1Xh...
+      Are you sure you want to continue connecting (yes/no)?
+      ```
+
+      Answering yes stores the key in `~/.ssh/known_hosts`.  If it ever changes, SSH warns
+      loudly - it could be a reinstall, or someone intercepting your connection.  Verify
+      fingerprints through another channel for important servers.
+  - title: Key-based authentication
+    content: |
+      Passwords can be guessed.  A **key pair** is far stronger:
+
+      ```
+      ssh-keygen -t ed25519 -C "student@laptop"     # creates ~/.ssh/id_ed25519 (+ .pub)
+      ssh-copy-id alice@server                      # appends the .pub to the server's
+                                                    # ~/.ssh/authorized_keys
+      ssh alice@server                              # now logs in with the key
+      ```
+
+      * The **private key** (`id_ed25519`) never leaves your machine; protect it with a
+        passphrase.  Mode must be `600`.
+      * The **public key** (`.pub`) may be shared freely.
+      * On the server, `~/.ssh` must be `700` and `authorized_keys` `600` - sshd refuses
+        keys in files others could modify.
+
+      `ssh-agent` remembers your passphrase for the session (`ssh-add`).
+  - title: Copying files and configuration
+    content: |
+      ```
+      scp report.pdf alice@server:/tmp/             # copy to the server
+      scp alice@server:/var/log/app.log .           # copy from the server
+      rsync -av --progress site/ alice@server:/var/www/site/   # sync, only changes
+      ```
+
+      `~/.ssh/config` saves typing:
+
+      ```
+      Host web
+          HostName 203.0.113.10
+          User alice
+          Port 2222
+          IdentityFile ~/.ssh/id_ed25519
+      ```
+
+      Now `ssh web` is enough.
+
+exercises:
+  - id: start-sshd
+    title: Start the SSH server
+    instructions: |
+      Start the SSH server in your laboratory so that it **listens on port 22**.
+    setup: systemctl stop ssh ssh.socket 2>/dev/null; true
+    reference: sudo systemctl start ssh
+    alternatives: ['sudo systemctl start ssh.socket']
+    checks:
+      - {type: port_listening, port: 22}
+    hints:
+      - Services are started with systemctl.
+      - The service unit is called ssh.
+      - sudo systemctl start ssh
+      - "systemctl start ssh starts sshd; ss -tln then shows a listener on port 22."
+  - id: key-login
+    title: Log in with a key
+    instructions: |
+      Set up **key-based** SSH login for **student@localhost**:
+
+      1. make sure sshd is running;
+      2. create an **ed25519** key pair **without a passphrase** in the default location;
+      3. authorise the public key for your own account.
+
+      Success means `ssh -o BatchMode=yes student@localhost true` works (BatchMode forbids
+      password prompts).
+    setup: |
+      systemctl start ssh; rm -rf {home}/.ssh
+    reference: |
+      ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519
+      cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
+      chmod 600 ~/.ssh/authorized_keys
+    alternatives:
+      - |
+        ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
+        cp ~/.ssh/id_ed25519.pub ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+    wrong:
+      - run: |
+          ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519
+          cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys; chmod 666 ~/.ssh/authorized_keys
+        expect: partial
+    checks:
+      - {type: file_exists, path: ~/.ssh/id_ed25519.pub}
+      - {type: command, user: student, timeout: 20,
+         run: "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=5 student@localhost true",
+         exit_code: 0,
+         fail: "Key login does not work. Check that the public key is in ~/.ssh/authorized_keys and that authorized_keys is not writable by group/others (chmod 600)."}
+    hints:
+      - Generate the pair with ssh-keygen; the public half goes into authorized_keys.
+      - "ssh-keygen -t ed25519 -N '' creates a key without passphrase; authorized_keys must be mode 600."
+      - "ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519 && cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+      - "ssh-copy-id student@localhost does the same (asking for the password once). sshd's StrictModes rejects authorized_keys files that others can write."
+
+quiz:
+  questions:
+    - id: q-private
+      type: mcq
+      topic: Key-based authentication
+      prompt: Which file must you NEVER give to anyone?
+      options: [~/.ssh/id_ed25519.pub, ~/.ssh/id_ed25519, ~/.ssh/known_hosts, ~/.ssh/config]
+      answer: 1
+    - id: q-authkeys
+      type: short
+      topic: Key-based authentication
+      prompt: On the server, in which file (in the user's ~/.ssh) are authorised public keys listed?
+      answer: [authorized_keys, ~/.ssh/authorized_keys, .ssh/authorized_keys]
+    - id: q-hostkey
+      type: troubleshoot
+      topic: Host keys - who am I talking to?
+      prompt: "SSH prints 'WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!'.  What should you do first?"
+      options:
+        - Delete known_hosts and continue
+        - Find out why the host key changed (reinstall? or an attack?) before connecting
+        - Use a password instead of a key
+        - Ignore it
+      answer: 1
+    - id: q-perm
+      type: truefalse
+      topic: Key-based authentication
+      prompt: sshd may refuse key authentication if ~/.ssh/authorized_keys is writable by other users.
+      answer: true
+    - id: q-scp
+      type: mcq
+      topic: Copying files and configuration
+      prompt: Which command copies /etc/hosts FROM server1 into the current directory?
+      options: ["scp /etc/hosts server1:.", "scp server1:/etc/hosts .", "ssh server1 cp /etc/hosts .", "rsync . server1:/etc/hosts"]
+      answer: 1
+    - id: q-config
+      type: interpret
+      topic: Copying files and configuration
+      prompt: With this ~/.ssh/config, what does `ssh db` do?
+      output: |
+        Host db
+            HostName 10.1.2.3
+            User postgres
+            Port 2200
+      options: [Connects to host "db" on port 22, Connects as postgres to 10.1.2.3 on port 2200, Starts a database, Fails]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Remote command
+      topic: Secure Shell
+      prompt: |
+        sshd is running and key login for student@localhost has been set up for you.
+        Use **ssh** to run `uptime` on **student@localhost** and save **its output** in
+        **~/remote-uptime.txt** (on your side).
+      setup: |
+        systemctl start ssh; rm -rf {home}/.ssh {home}/remote-uptime.txt
+        su student -c 'mkdir -p ~/.ssh && ssh-keygen -q -t ed25519 -N "" -f ~/.ssh/id_ed25519 && cat ~/.ssh/id_ed25519.pub > ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && ssh-keyscan localhost > ~/.ssh/known_hosts 2>/dev/null'
+      reference: ssh student@localhost uptime > ~/remote-uptime.txt
+      checks:
+        - {type: file_contains, path: ~/remote-uptime.txt, regex: 'load average'}
+      hints:
+        - ssh can run a single command on the remote host; its output comes back to you.
+        - ssh USER@HOST COMMAND > file
+        - ssh student@localhost uptime > ~/remote-uptime.txt
+        - "The redirection happens in your local shell, so the file is created locally with the remote command's output."

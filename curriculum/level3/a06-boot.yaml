@@ -1,0 +1,171 @@
+id: a06-boot
+level: advanced
+module: system
+title: Boot processes and system initialisation
+duration: 40
+objectives:
+  - Describe the boot sequence from firmware to login
+  - Understand GRUB, the kernel command line and the initramfs
+  - Work with systemd targets and the default target
+  - Analyse boot performance and recover from boot problems
+
+sections:
+  - title: From power-on to login
+    content: |
+      ```
+      Firmware (UEFI/BIOS)  -> finds the boot loader on the EFI system partition / MBR
+      Boot loader (GRUB)    -> loads the kernel + initramfs, passes the kernel command line
+      Kernel                -> initialises hardware, mounts the initramfs
+      initramfs             -> loads drivers needed to find the real root filesystem, mounts it
+      systemd (PID 1)       -> mounts filesystems, starts services up to the default target
+      Login                 -> getty on consoles, display manager, sshd
+      ```
+
+      Each stage can fail in characteristic ways - knowing the order tells you where to look.
+  - title: GRUB and the kernel command line
+    content: |
+      GRUB's settings are in **/etc/default/grub**; after changing them run
+      `sudo update-grub` to regenerate `/boot/grub/grub.cfg` (never edit grub.cfg directly).
+
+      ```
+      GRUB_TIMEOUT=5
+      GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
+      ```
+
+      The running kernel's command line is in **/proc/cmdline**.  Useful parameters for
+      recovery: `systemd.unit=rescue.target`, `systemd.unit=emergency.target`, `single`,
+      `init=/bin/bash` (last resort).  At the GRUB menu press **e** to edit an entry for one boot.
+
+      The **initramfs** (`/boot/initrd.img-*`) is rebuilt with `sudo update-initramfs -u`.
+  - title: Targets
+    content: |
+      **Targets** group units into system states (they replace SysV run levels):
+
+      | Target | Old run level | State |
+      |---|---|---|
+      | `poweroff.target` | 0 | shut down |
+      | `rescue.target` | 1 | single user, minimal services, root shell |
+      | `multi-user.target` | 3 | full system, no graphical login (servers) |
+      | `graphical.target` | 5 | multi-user plus desktop login |
+      | `emergency.target` | - | almost nothing; root filesystem read-only |
+
+      ```
+      systemctl get-default
+      sudo systemctl set-default multi-user.target
+      sudo systemctl isolate rescue.target     # switch now (careful!)
+      systemctl list-dependencies multi-user.target
+      ```
+  - title: Analysing and recovering
+    content: |
+      * `systemd-analyze` - total boot time; `systemd-analyze blame` - slowest units;
+        `systemd-analyze critical-chain` - the chain that determined the time.
+      * `journalctl -b -1 -p err` - errors from the **previous** boot (needs a persistent journal).
+      * `dmesg` / `journalctl -k` - kernel messages (hardware, drivers).
+
+      Common failures: a bad `/etc/fstab` line (boots into emergency mode - fix fstab,
+      `mount -a`, reboot), a full root filesystem, a broken initramfs after a kernel update
+      (choose the previous kernel in GRUB's "Advanced options").
+
+      :::note
+      In the laboratory the kernel and boot loader belong to the host, so GRUB and
+      initramfs cannot be changed here.  systemd targets, the journal and systemd-analyze
+      work normally.
+      :::
+
+exercises:
+  - id: default-target
+    title: A server should not boot to a desktop
+    instructions: |
+      Make **multi-user.target** the system's **default target**.
+    setup: systemctl set-default graphical.target >/dev/null 2>&1; true
+    reference: sudo systemctl set-default multi-user.target
+    checks:
+      - {type: command, run: "systemctl get-default", stdout_equals: multi-user.target}
+    hints:
+      - systemctl can show and set the default target.
+      - set-default TARGET
+      - sudo systemctl set-default multi-user.target
+      - "set-default changes the symlink /etc/systemd/system/default.target."
+  - id: cmdline
+    title: Read the kernel command line
+    instructions: |
+      What is the **first word** of the kernel command line that the running kernel was
+      booted with?  Type it.
+    answer_prompt: "First word:"
+    reference: cat /proc/cmdline
+    checks:
+      - {type: answer, command: "awk '{print $1}' /proc/cmdline"}
+    hints:
+      - The kernel publishes its command line in /proc.
+      - It is the file /proc/cmdline.
+      - cat /proc/cmdline
+      - "The first word is often BOOT_IMAGE=/vmlinuz-... - copy it exactly."
+  - id: slow-unit
+    title: What slows the boot down?
+    instructions: |
+      Use **systemd-analyze** to find which unit took the **longest** to start during this
+      boot of the laboratory, and type its name (e.g. `cron.service`).
+    answer_prompt: "Slowest unit:"
+    reference: systemd-analyze blame
+    checks:
+      - type: answer
+        command: "systemd-analyze blame --no-pager 2>/dev/null | awk 'NR==1{print $2}'"
+    hints:
+      - systemd-analyze has a sub-command that sorts units by start-up time.
+      - systemd-analyze blame
+      - systemd-analyze blame | head -3
+      - "The first line of systemd-analyze blame is the slowest unit."
+
+quiz:
+  questions:
+    - id: q-order
+      type: mcq
+      topic: From power-on to login
+      prompt: What is the correct order?
+      options: ["Kernel -> GRUB -> firmware -> systemd", "Firmware -> GRUB -> kernel + initramfs -> systemd", "systemd -> kernel -> GRUB", "GRUB -> firmware -> systemd -> kernel"]
+      answer: 1
+    - id: q-grubcfg
+      type: troubleshoot
+      topic: GRUB and the kernel command line
+      prompt: You edited /etc/default/grub but nothing changed after reboot.  What did you forget?
+      options: [sudo update-grub, systemctl daemon-reload, update-initramfs only, mount -a]
+      answer: 0
+    - id: q-target
+      type: mcq
+      topic: Targets
+      prompt: Which target corresponds to a server with no graphical login?
+      options: [graphical.target, multi-user.target, rescue.target, default.target only]
+      answer: 1
+    - id: q-fstab
+      type: troubleshoot
+      topic: Analysing and recovering
+      prompt: After adding a disk to /etc/fstab the server boots into emergency mode.  First step?
+      options: [Reinstall, Fix or comment out the new fstab line, then mount -a and reboot, Update GRUB, Run update-initramfs]
+      answer: 1
+    - id: q-prevboot
+      type: short
+      topic: Analysing and recovering
+      prompt: Which journalctl option selects messages from the previous boot?
+      answer: ["-b -1", "--boot=-1", "-b-1", "--boot -1"]
+    - id: q-initramfs
+      type: truefalse
+      topic: GRUB and the kernel command line
+      prompt: The initramfs contains drivers and tools needed to mount the real root filesystem.
+      answer: true
+    - id: q-practical
+      type: practical
+      title: Enable a service for multi-user
+      topic: Targets
+      prompt: |
+        Make sure **ssh.service** starts automatically when the system reaches
+        **multi-user.target** (i.e. enable it).  It need not be running now.
+      setup: systemctl disable ssh.service 2>/dev/null; true
+      reference: sudo systemctl enable ssh
+      checks:
+        - {type: service_enabled, name: ssh}
+        - {type: command, run: "systemctl list-dependencies --plain multi-user.target", stdout_contains: ssh.service}
+      hints:
+        - Enabling creates the dependency on a target.
+        - systemctl enable UNIT
+        - sudo systemctl enable ssh
+        - "enable creates a symlink in /etc/systemd/system/multi-user.target.wants/."

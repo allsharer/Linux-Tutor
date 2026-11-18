@@ -1,0 +1,8 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+    rm -rf /etc/linux-tutor
+fi
+# Student records live in each user's ~/.local/share/linux-tutor and are never removed
+# by the package manager.  See UNINSTALL.md.
+exit 0

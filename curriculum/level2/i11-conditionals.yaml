@@ -1,0 +1,224 @@
+id: i11-conditionals
+level: intermediate
+module: shell
+title: Conditional statements
+duration: 35
+objectives:
+  - Use if, elif and else with command exit statuses
+  - Write tests with [ ] and [[ ]] for files, strings and numbers
+  - Use case for multi-way branches
+  - Combine conditions safely
+
+sections:
+  - title: if runs a command
+    content: |
+      In Bash, `if` does not evaluate an expression - it runs a **command** and looks at
+      its exit status (0 = true):
+
+      ```bash
+      if grep -q "^student:" /etc/passwd; then
+          echo "student exists"
+      elif [ -d /home/guest ]; then
+          echo "a guest home exists"
+      else
+          echo "neither"
+      fi
+      ```
+
+      Any command can be a condition: `if ping -c1 -W1 host >/dev/null; then ...`.
+  - title: Tests with [ ] and [[ ]]
+    content: |
+      `[` (also called `test`) is a command that evaluates a condition.  Bash's `[[ ]]`
+      is a safer, more powerful built-in version - prefer it in Bash scripts.
+
+      | Files | Strings | Integers |
+      |---|---|---|
+      | `-e f` exists | `-z s` empty | `a -eq b` equal |
+      | `-f f` regular file | `-n s` not empty | `a -ne b` not equal |
+      | `-d f` directory | `s1 == s2` equal | `a -lt b` less than |
+      | `-r -w -x f` permissions | `s1 != s2` | `a -le`, `-gt`, `-ge` |
+      | `-s f` non-empty | `[[ s =~ regex ]]` | `(( a > b ))` arithmetic |
+
+      ```bash
+      if [[ -f "$config" && -r "$config" ]]; then source "$config"; fi
+      if (( $# < 2 )); then echo "usage: $0 SRC DEST" >&2; exit 2; fi
+      ```
+
+      :::warning
+      Spaces matter: `[ -f "$x" ]` - the brackets are separate words.  `[-f "$x"]` is an
+      error.  And `-eq` compares numbers, `==` compares strings.
+      :::
+  - title: case
+    content: |
+      `case` matches a value against glob patterns - neater than a chain of elifs:
+
+      ```bash
+      case "$1" in
+          start)        echo "starting..." ;;
+          stop|halt)    echo "stopping..." ;;
+          *.tar.gz)     tar xzf "$1" ;;
+          *)            echo "usage: $0 start|stop" >&2; exit 1 ;;
+      esac
+      ```
+  - title: Short-circuit conditions
+    content: |
+      For one-liners, `&&` and `||` act as compact ifs:
+
+      ```bash
+      [[ -d "$dir" ]] || mkdir -p "$dir"
+      [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
+      ```
+
+      Use full `if` blocks when the logic grows - readability beats cleverness.
+
+exercises:
+  - id: classify
+    title: What kind of path?
+    instructions: |
+      Write an executable script **~/kind.sh** that takes one path and prints:
+
+      * `directory` if it is a directory,
+      * `file` if it is a regular file,
+      * `missing` if nothing exists there.
+    setup: rm -f {home}/kind.sh
+    reference: |
+      cat > ~/kind.sh <<'EOF'
+      #!/bin/bash
+      if [[ -d "$1" ]]; then
+          echo directory
+      elif [[ -f "$1" ]]; then
+          echo file
+      else
+          echo missing
+      fi
+      EOF
+      chmod +x ~/kind.sh
+    checks:
+      - {type: script, path: ~/kind.sh, args: [/etc], stdout_equals: directory}
+      - {type: script, path: ~/kind.sh, args: [/etc/passwd], stdout_equals: file}
+      - {type: script, path: ~/kind.sh, args: [/nope], stdout_equals: missing}
+      - {type: script, path: ~/kind.sh, args: [/tmp/a dir with spaces], before: "mkdir -p '/tmp/a dir with spaces'",
+         stdout_equals: directory, fail: "The script fails for a path containing spaces - quote \"$1\"."}
+    hints:
+      - Use if / elif / else with file tests.
+      - "-d tests for a directory, -f for a regular file."
+      - "if [[ -d \"$1\" ]]; then echo directory; elif [[ -f \"$1\" ]]; then echo file; else echo missing; fi"
+      - "Save that in ~/kind.sh after #!/bin/bash, chmod +x, and test with ./kind.sh /etc."
+  - id: grade
+    title: Numbers and ranges
+    instructions: |
+      Write an executable script **~/grade.sh** that takes a score (0-100) and prints
+      `pass` if the score is **80 or more**, otherwise `retry`.  If no argument is given it
+      must print `usage: grade.sh SCORE` to **stderr** and exit with status **2**.
+    setup: rm -f {home}/grade.sh
+    reference: |
+      cat > ~/grade.sh <<'EOF'
+      #!/bin/bash
+      if [[ $# -lt 1 ]]; then
+          echo "usage: grade.sh SCORE" >&2
+          exit 2
+      fi
+      if (( $1 >= 80 )); then echo pass; else echo retry; fi
+      EOF
+      chmod +x ~/grade.sh
+    checks:
+      - {type: script, path: ~/grade.sh, args: ["80"], stdout_equals: pass}
+      - {type: script, path: ~/grade.sh, args: ["100"], stdout_equals: pass}
+      - {type: script, path: ~/grade.sh, args: ["79"], stdout_equals: retry}
+      - {type: script, path: ~/grade.sh, args: ["9"], stdout_equals: retry,
+         fail: "9 should give retry - are you comparing as text instead of numbers? Use -ge or (( ))."}
+      - {type: script, path: ~/grade.sh, args: [], exit_code: 2, stdout_equals: ""}
+    hints:
+      - Two decisions - is there an argument, and is it at least 80?
+      - "$# gives the number of arguments; -ge or (( )) compares numbers; >&2 writes to stderr."
+      - "[[ $# -lt 1 ]] && { echo 'usage: grade.sh SCORE' >&2; exit 2; }"
+      - "Then: if (( $1 >= 80 )); then echo pass; else echo retry; fi. Note [[ 9 > 80 ]] would compare strings and be true!"
+  - id: service-case
+    title: A control script with case
+    instructions: |
+      Write an executable script **~/ctl.sh** using `case` that accepts one word:
+
+      * `start` → prints `Starting`
+      * `stop` → prints `Stopping`
+      * `status` → prints `Running`
+      * anything else → prints `Unknown command` and exits with status 1
+    setup: rm -f {home}/ctl.sh
+    reference: |
+      cat > ~/ctl.sh <<'EOF'
+      #!/bin/bash
+      case "$1" in
+          start) echo Starting ;;
+          stop) echo Stopping ;;
+          status) echo Running ;;
+          *) echo "Unknown command"; exit 1 ;;
+      esac
+      EOF
+      chmod +x ~/ctl.sh
+    checks:
+      - {type: script, path: ~/ctl.sh, args: [start], stdout_equals: Starting, exit_code: 0}
+      - {type: script, path: ~/ctl.sh, args: [stop], stdout_equals: Stopping}
+      - {type: script, path: ~/ctl.sh, args: [status], stdout_equals: Running}
+      - {type: script, path: ~/ctl.sh, args: [restart], stdout_equals: Unknown command, exit_code: 1}
+    hints:
+      - case compares one value against several patterns.
+      - "Each branch is pattern) commands ;;  and * matches anything else."
+      - "case \"$1\" in start) echo Starting ;; ... *) echo \"Unknown command\"; exit 1 ;; esac"
+      - "End the case with esac. Test every branch, including an unknown word, and check $?."
+
+quiz:
+  questions:
+    - id: q-if-cmd
+      type: truefalse
+      topic: if runs a command
+      prompt: "In Bash, `if grep -q x file; then ...` is valid - if uses the exit status of grep."
+      answer: true
+    - id: q-eq
+      type: mcq
+      topic: Tests with [ ] and [[ ]]
+      prompt: Which test compares two integers for equality?
+      options: ['[ "$a" = "$b" ]', '[ "$a" -eq "$b" ]', '[ $a == $b ] only', '[ -n $a ]']
+      answer: 1
+    - id: q-spaces
+      type: troubleshoot
+      topic: Tests with [ ] and [[ ]]
+      prompt: "`if [-f /etc/hosts]; then` gives '[-f: command not found'.  Fix?"
+      options: [Use quotes, 'Add spaces - [ -f /etc/hosts ]', Use -e instead, Remove the semicolon]
+      answer: 1
+    - id: q-z
+      type: mcq
+      topic: Tests with [ ] and [[ ]]
+      prompt: Which test is true when the variable name is empty?
+      options: ['[[ -n "$name" ]]', '[[ -z "$name" ]]', '[[ -e "$name" ]]', '[[ -s "$name" ]]']
+      answer: 1
+    - id: q-case-end
+      type: short
+      topic: case
+      prompt: Which keyword ends a case statement?
+      answer: [esac]
+    - id: q-shortcircuit
+      type: interpret
+      topic: Short-circuit conditions
+      prompt: What does this line do when /data does not exist?
+      output: '[[ -d /data ]] || mkdir /data'
+      options: [Nothing, Creates /data, Prints an error and stops, Deletes /data]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Root check
+      topic: Short-circuit conditions
+      prompt: |
+        Write an executable script **~/needroot.sh** that prints `ok` and exits 0 when run
+        **as root**, and otherwise prints `please run as root` and exits with status **1**.
+        (The variable `EUID` holds the effective user ID; root's is 0.)
+      setup: rm -f {home}/needroot.sh
+      reference: |
+        printf '#!/bin/bash\nif [[ $EUID -ne 0 ]]; then echo "please run as root"; exit 1; fi\necho ok\n' > ~/needroot.sh
+        chmod +x ~/needroot.sh
+      checks:
+        - {type: script, path: ~/needroot.sh, stdout_equals: please run as root, exit_code: 1}
+        - {type: script, path: ~/needroot.sh, user: root, stdout_equals: ok, exit_code: 0}
+      hints:
+        - Compare EUID with 0.
+        - "[[ $EUID -ne 0 ]] is true for ordinary users."
+        - "if [[ $EUID -ne 0 ]]; then echo \"please run as root\"; exit 1; fi; echo ok"
+        - "Test it twice: ./needroot.sh and sudo ./needroot.sh."

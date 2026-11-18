@@ -1,0 +1,183 @@
+id: a18-backup
+level: advanced
+module: operations
+title: Backup and recovery
+duration: 45
+objectives:
+  - Design a backup strategy (3-2-1, RPO and RTO)
+  - Make full and incremental backups with tar and rsync
+  - Verify backups and restore files and directories
+  - Back up databases and system configuration consistently
+
+sections:
+  - title: Strategy first
+    content: |
+      * **3-2-1 rule**: 3 copies of your data, on 2 different media, 1 off-site.
+      * **RPO** (recovery point objective): how much data may you lose? → backup frequency.
+      * **RTO** (recovery time objective): how quickly must you be back? → restore method.
+      * **A backup you have not restored is a hope, not a backup.**  Test restores regularly.
+      * Protect backups from the system they back up (ransomware, `rm -rf`): off-site,
+        append-only or offline copies.
+
+      What to back up: data (/home, /srv, /var/lib/... databases), configuration (/etc),
+      the list of installed packages (`dpkg --get-selections`), crontabs, and documentation
+      of how to rebuild.
+  - title: tar - archives and incremental backups
+    content: |
+      ```
+      sudo tar czpf /backup/etc-$(date +%F).tgz -C / etc        # p = keep permissions
+      tar tzf /backup/etc-2024-03-01.tgz | head                  # verify the listing
+
+      # incremental: the snapshot file records what was already saved
+      tar czf /backup/home-full.tgz  --listed-incremental=/backup/home.snar /home
+      tar czf /backup/home-inc1.tgz  --listed-incremental=/backup/home.snar /home
+      ```
+
+      Restore a single file: `tar xzf backup.tgz -C /tmp/restore etc/ssh/sshd_config`.
+  - title: rsync - efficient copies and snapshots
+    content: |
+      ```
+      rsync -aHAX --delete /srv/data/ /backup/data/          # mirror (trailing slashes matter!)
+      rsync -a --delete -e ssh /srv/ backup@nas:/backups/web1/
+      rsync -a --link-dest=/backup/2024-03-01 /srv/ /backup/2024-03-02/   # snapshot: unchanged files are hard links
+      rsync -an --delete ...                                 # -n: dry run - ALWAYS try first with --delete
+      ```
+
+      * `-a` archive (recursive, permissions, times, owners, links); `-H` hard links, `-A`
+        ACLs, `-X` extended attributes.
+      * `src/` copies the *contents* of src; `src` (no slash) copies the directory itself.
+
+      :::warning
+      `--delete` removes files in the destination that are not in the source.  Swapping
+      source and destination by mistake deletes your data.  Use `-n` first.
+      :::
+  - title: Consistent backups and restore drills
+    content: |
+      Copying a running database's files can produce a corrupt backup.  Use the database's
+      dump tool (`pg_dump`, `mysqldump --single-transaction`) or a filesystem/LVM snapshot.
+
+      A restore drill:
+
+      1. pick a random file from last week's backup;
+      2. restore it to a **temporary location** (never over the original first);
+      3. compare: `cmp`, `diff`, `sha256sum`;
+      4. time the full restore of a test machine - is your RTO realistic?
+
+      Tools worth knowing: **restic** and **borgbackup** (encrypted, deduplicated, incremental).
+
+exercises:
+  - id: rsync-mirror
+    title: Mirror with rsync
+    instructions: |
+      Make **/backup/website/** an exact mirror of the **contents** of **/srv/website/**:
+      every file present with the same content and permissions, and files that no longer
+      exist in the source (e.g. `old-page.html`, which is only in the backup) **removed**
+      from the mirror.  /srv/website itself must not be modified.
+    setup: |
+      rm -rf /srv/website /backup/website; mkdir -p /srv/website/img /backup/website
+      echo "<h1>Home</h1>" > /srv/website/index.html; echo "body{}" > /srv/website/style.css
+      head -c 2000 /dev/urandom > /srv/website/img/logo.png; chmod 640 /srv/website/style.css
+      echo old > /backup/website/old-page.html; echo stale > /backup/website/index.html
+      chown -R student: /srv/website /backup; find /srv/website -type f -exec sha256sum {} + | sort > /root/.web.sha
+    reference: rsync -a --delete /srv/website/ /backup/website/
+    alternatives: ['rsync -av --delete /srv/website/ /backup/website']
+    wrong:
+      - {run: rsync -a /srv/website/ /backup/website/, expect: partial}
+      - {run: rsync -a --delete /srv/website /backup/website/, expect: not_success}
+    checks:
+      - {type: command, run: "diff -r /srv/website /backup/website && echo same", stdout_equals: same,
+         fail: "/backup/website is not identical to /srv/website (did you include the trailing slash on the source?)."}
+      - {type: not_exists, path: /backup/website/old-page.html, fail: "old-page.html is still in the mirror - use --delete."}
+      - {type: mode, path: /backup/website/style.css, mode: "640", fail: "Permissions were not preserved (use -a)."}
+    constraints:
+      - {type: command, run: "cd / && find /srv/website -type f -exec sha256sum {} + | sort | diff - /root/.web.sha && echo intact", stdout_equals: intact,
+         fail: "The SOURCE /srv/website was modified - source and destination may have been swapped!"}
+    hints:
+      - "rsync -a preserves everything; another option removes extra files; mind the trailing slash."
+      - "-a --delete, source /srv/website/ (with slash = its contents)."
+      - rsync -a --delete /srv/website/ /backup/website/
+      - "Try it first with -n (dry run) and -v to see what would be copied and deleted."
+  - id: restore-one
+    title: Restore one file from an archive
+    instructions: |
+      Someone broke **/etc/tutor/app.conf**.  The archive **/backup/etc-backup.tgz** (made with
+      `tar czf ... -C / etc`) contains a good copy.  Restore **only that file** to its original
+      location, with its original **permissions (640)**.  Leave everything else alone.
+    setup: |
+      mkdir -p /etc/tutor /backup; printf 'mode=production\nworkers=8\n' > /etc/tutor/app.conf; chmod 640 /etc/tutor/app.conf
+      echo "keep me" > /etc/tutor/other.conf
+      tar czf /backup/etc-backup.tgz -C / etc/tutor/app.conf etc/tutor/other.conf etc/hostname
+      echo "BROKEN###" > /etc/tutor/app.conf; chmod 666 /etc/tutor/app.conf; echo "newer, keep" > /etc/tutor/other.conf
+    reference: sudo tar xzpf /backup/etc-backup.tgz -C / etc/tutor/app.conf
+    checks:
+      - {type: file_equals, path: /etc/tutor/app.conf, content: "mode=production\nworkers=8"}
+      - {type: mode, path: /etc/tutor/app.conf, mode: "640"}
+    constraints:
+      - {type: file_contains, path: /etc/tutor/other.conf, text: "newer, keep", fail: "other.conf was overwritten - restore only the requested file."}
+    hints:
+      - List the archive to find the exact member name, then extract only that member into /.
+      - "tar tzf shows etc/tutor/app.conf; -C / extracts relative to the root; p keeps permissions."
+      - sudo tar xzpf /backup/etc-backup.tgz -C / etc/tutor/app.conf
+      - "Safer still: extract into /tmp/restore first, compare with diff, then copy into place."
+
+quiz:
+  questions:
+    - id: q-321
+      type: mcq
+      topic: Strategy first
+      prompt: What does the 3-2-1 rule recommend?
+      options: [3 backups a day, "3 copies, on 2 media, 1 off-site", 3 servers, 2 admins, 1 tape, Keep backups 321 days]
+      answer: 1
+    - id: q-rpo
+      type: mcq
+      topic: Strategy first
+      prompt: Backups run nightly at 02:00.  What is the worst-case RPO?
+      options: [About 24 hours of lost data, 2 hours, Zero, It depends on the restore speed]
+      answer: 0
+    - id: q-slash
+      type: interpret
+      topic: rsync - efficient copies and snapshots
+      prompt: Where do the files end up?
+      output: "rsync -a /srv/data /backup/"
+      options: [Directly in /backup, In /backup/data, In /backup/srv/data, Nowhere]
+      answer: 1
+    - id: q-dryrun
+      type: short
+      topic: rsync - efficient copies and snapshots
+      prompt: Which rsync option performs a dry run?
+      answer: ["-n", "--dry-run"]
+    - id: q-db
+      type: troubleshoot
+      topic: Consistent backups and restore drills
+      prompt: Restores of a busy MySQL server's /var/lib/mysql copied with rsync sometimes fail to start.  Why?
+      options: [rsync corrupts files, The files changed during copying - use mysqldump --single-transaction or a snapshot, MySQL needs ext4, Permissions]
+      answer: 1
+    - id: q-test
+      type: truefalse
+      topic: Strategy first
+      prompt: A backup job that reports success guarantees that the data can be restored.
+      answer: false
+    - id: q-practical
+      type: practical
+      title: Configuration backup
+      topic: tar - archives and incremental backups
+      prompt: |
+        Create **/backup/etc-today.tgz**, a gzip-compressed tar archive of the whole **/etc**
+        directory, storing paths relative to / (members start with `etc/`) and preserving
+        permissions.  Also save the list of installed packages (`dpkg --get-selections`) to
+        **/backup/packages.txt**.
+      setup: mkdir -p /backup; rm -f /backup/etc-today.tgz /backup/packages.txt
+      reference: |
+        sudo tar czpf /backup/etc-today.tgz -C / etc
+        dpkg --get-selections | sudo tee /backup/packages.txt >/dev/null
+      checks:
+        - {type: command, run: "tar tzf /backup/etc-today.tgz | grep -c '^etc/ssh/sshd_config$'", stdout_equals: "1",
+           fail: "The archive does not contain etc/ssh/sshd_config with a relative path."}
+        - {type: command, run: "tar tzf /backup/etc-today.tgz | grep -c '^etc/shadow$'", stdout_equals: "1",
+           fail: "etc/shadow is missing - did you run tar as root?"}
+        - {type: file_contains, path: /backup/packages.txt, regex: '^bash\s+install$'}
+      hints:
+        - tar as root with -C /, plus a package list.
+        - "-C / etc stores etc/...; p preserves permissions; dpkg --get-selections lists packages."
+        - sudo tar czpf /backup/etc-today.tgz -C / etc
+        - "dpkg --get-selections | sudo tee /backup/packages.txt - later, dpkg --set-selections and apt-get dselect-upgrade reinstall the same packages."

@@ -1,0 +1,186 @@
+id: i09-environment
+level: intermediate
+module: shell
+title: Environment variables
+duration: 30
+objectives:
+  - Distinguish shell variables from environment variables
+  - Set, export, unset and inspect variables
+  - Make settings permanent in the right startup file
+  - Understand PATH, HOME, EDITOR, LANG and friends
+
+sections:
+  - title: Shell variables
+    content: |
+      ```
+      $ name="Ada Lovelace"          # no spaces around =
+      $ echo "Hello, $name"
+      Hello, Ada Lovelace
+      $ echo "${name}s book"         # braces separate the name from text
+      $ unset name
+      ```
+
+      A plain variable exists **only in the current shell**.  Programs you start do not
+      see it.
+  - title: The environment
+    content: |
+      **Exported** variables form the **environment**, which is copied to every child
+      process:
+
+      ```
+      $ GREETING=hi
+      $ bash -c 'echo "child sees: $GREETING"'
+      child sees:
+      $ export GREETING
+      $ bash -c 'echo "child sees: $GREETING"'
+      child sees: hi
+      ```
+
+      `env` and `printenv` list the environment; `set` lists all shell variables too.
+      `VAR=value command` sets a variable for one command only:
+      `LANG=C ls --help`, `TZ=Asia/Tokyo date`.
+
+      Important variables:
+
+      | Variable | Meaning |
+      |---|---|
+      | `PATH` | where commands are searched |
+      | `HOME`, `USER`, `SHELL` | your home, name and login shell |
+      | `PWD`, `OLDPWD` | current and previous directory |
+      | `EDITOR`, `VISUAL` | editor used by crontab -e, git, etc. |
+      | `LANG`, `LC_*` | language and formatting |
+      | `PS1` | the prompt |
+    examples:
+      - command: printenv | sort | head -20
+        explanation: Part of your environment.
+      - command: TZ=America/New_York date
+        explanation: A variable for one command only.
+  - title: Making it permanent
+    content: |
+      Variables vanish when the shell exits.  To keep them, put the assignments in a
+      **startup file** that bash reads:
+
+      | File | Read by |
+      |---|---|
+      | `~/.bashrc` | every interactive non-login shell (new terminal tabs) - and on Ubuntu, from ~/.profile at login |
+      | `~/.profile` | login shells (console, SSH) |
+      | `/etc/environment` | every login session, system wide (simple `NAME=value` lines) |
+      | `/etc/profile.d/*.sh` | system-wide login scripts |
+
+      Typical additions to ~/.bashrc:
+
+      ```
+      export EDITOR=nano
+      export PATH="$HOME/bin:$PATH"
+      alias ll='ls -alF'
+      ```
+
+      Apply the changes to the current shell with `source ~/.bashrc` (or `. ~/.bashrc`).
+
+      :::warning
+      Always *extend* PATH (`PATH="$HOME/bin:$PATH"`), never replace it - otherwise
+      common commands stop being found.
+      :::
+
+exercises:
+  - id: export-editor
+    title: Set your editor permanently
+    instructions: |
+      Make **nano** your default editor: every **new** shell must have the environment
+      variable **EDITOR** set to `nano` and **exported** so that programs see it.
+    setup: sed -i '/EDITOR/d' {home}/.bashrc {home}/.profile
+    reference: echo 'export EDITOR=nano' >> ~/.bashrc
+    alternatives: ["echo 'export EDITOR=nano' >> ~/.profile"]
+    wrong:
+      - {run: "echo 'EDITOR=nano' >> ~/.bashrc", feedback: not exported}
+      - {run: export EDITOR=nano, feedback: new shell}
+    checks:
+      - {type: env_var, name: EDITOR, value: nano, exported: true}
+    hints:
+      - The setting must be in a file that every new shell reads, and must be exported.
+      - Add an export line to ~/.bashrc.
+      - echo 'export EDITOR=nano' >> ~/.bashrc
+      - "Appending export EDITOR=nano to ~/.bashrc applies it to every new shell. Run source ~/.bashrc to apply it to the current one too."
+  - id: personal-bin
+    title: Your own bin directory
+    instructions: |
+      1. Create the directory **~/bin**.
+      2. Put an executable script **~/bin/greet** in it that prints `Hello from my bin`.
+      3. Make sure a **new** shell can run it just by typing `greet` - i.e. ~/bin is in
+         the PATH (and the existing PATH entries are kept).
+    setup: |
+      rm -rf {home}/bin; sed -i '/HOME\/bin/d; /~\/bin/d' {home}/.bashrc
+    reference: |
+      mkdir -p ~/bin
+      printf '#!/bin/bash\necho "Hello from my bin"\n' > ~/bin/greet
+      chmod +x ~/bin/greet
+      echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+    checks:
+      - {type: script, path: ~/bin/greet, stdout_contains: Hello from my bin}
+      - {type: command, run: "bash -lic 'greet' 2>/dev/null </dev/null", user: student, stdout_contains: Hello from my bin,
+         fail: "A new shell cannot find greet - add ~/bin to PATH in ~/.bashrc."}
+    constraints:
+      - {type: command, run: "bash -lic 'type -P ls' 2>/dev/null </dev/null", user: student, stdout_contains: /ls,
+         fail: "In a new shell, ls is no longer found - PATH was replaced instead of extended."}
+    hints:
+      - Three parts - directory, executable script, PATH entry in a startup file.
+      - "chmod +x makes the script runnable; PATH=\"$HOME/bin:$PATH\" extends the path."
+      - "echo 'export PATH=\"$HOME/bin:$PATH\"' >> ~/.bashrc"
+      - "Note: Ubuntu's ~/.profile already adds ~/bin to PATH at login if the directory exists - but adding it to ~/.bashrc makes it explicit for every interactive shell."
+
+quiz:
+  questions:
+    - id: q-export
+      type: mcq
+      topic: The environment
+      prompt: Why does a script not see a variable you set with `X=5` in your shell?
+      options: [Scripts cannot read variables, X was not exported to the environment, X must be lower case, You need sudo]
+      answer: 1
+    - id: q-spaces
+      type: troubleshoot
+      topic: Shell variables
+      prompt: "`NAME = alice` gives 'NAME: command not found'.  Why?"
+      options: [NAME is reserved, Spaces around = make bash treat NAME as a command, Variables must be exported, You must use set]
+      answer: 1
+    - id: q-oneshot
+      type: interpret
+      topic: The environment
+      prompt: What does this do?
+      output: "$ LANG=C sort names.txt"
+      options:
+        - Permanently changes the language
+        - Runs sort with LANG=C for this one command only
+        - Sorts the variable LANG
+        - Fails - LANG is read-only
+      answer: 1
+    - id: q-file
+      type: mcq
+      topic: Making it permanent
+      prompt: Where do you put an alias so that every new terminal tab has it?
+      options: [~/.bashrc, /etc/hosts, ~/.bash_history, /tmp/aliases]
+      answer: 0
+    - id: q-path
+      type: truefalse
+      topic: Making it permanent
+      prompt: PATH=$HOME/bin (without :$PATH) is a safe way to add your own directory.
+      answer: false
+    - id: q-source
+      type: short
+      topic: Making it permanent
+      prompt: Which command re-reads ~/.bashrc in the current shell? (command and file)
+      answer: ["source ~/.bashrc", ". ~/.bashrc", "re:(source|\\.)\\s+(~|\\$HOME|/home/student)/\\.bashrc"]
+    - id: q-practical
+      type: practical
+      title: A handy alias
+      topic: Making it permanent
+      prompt: |
+        Define an alias **ports** that runs `ss -tlnp`, available in **every new shell**.
+      setup: sed -i '/alias ports/d' {home}/.bashrc
+      reference: "echo \"alias ports='ss -tlnp'\" >> ~/.bashrc"
+      checks:
+        - {type: command, run: "bash -lic 'alias ports' 2>/dev/null </dev/null", user: student, stdout_contains: "ss -tlnp"}
+      hints:
+        - Aliases are defined with the alias built-in - and must be in a startup file to persist.
+        - "alias name='command' in ~/.bashrc."
+        - "echo \"alias ports='ss -tlnp'\" >> ~/.bashrc"
+        - "Every new interactive shell reads ~/.bashrc and defines the alias."

@@ -1,0 +1,179 @@
+id: i01-advanced-navigation
+level: intermediate
+module: files
+title: Advanced filesystem navigation
+duration: 25
+objectives:
+  - Use brace expansion and globbing to work with many paths at once
+  - Use the directory stack (pushd, popd, dirs)
+  - Inspect files in detail with stat and file
+  - Find your way around with realpath, basename and dirname
+
+sections:
+  - title: Brace expansion
+    content: |
+      Before running a command, bash expands **braces** into several words:
+
+      ```
+      $ echo file{1,2,3}.txt
+      file1.txt file2.txt file3.txt
+      $ mkdir -p project/{src,docs,tests}
+      $ echo {01..05}
+      01 02 03 04 05
+      $ cp config.yaml{,.bak}          # cp config.yaml config.yaml.bak
+      ```
+
+      Unlike wildcards, braces do not look at the disk - they generate names whether
+      or not the files exist.  That makes them perfect for *creating* things.
+    examples:
+      - command: echo {a,b,c}-{1,2}
+        explanation: Combinations - a-1 a-2 b-1 b-2 c-1 c-2.
+      - command: mkdir -p ~/demo/{2023,2024}/{q1,q2,q3,q4}
+        explanation: Eight directories in one command.
+  - title: Extended globbing
+    content: |
+      Wildcards (`*`, `?`, `[...]`) match *existing* names.  More patterns:
+
+      * `[0-9]` a digit, `[!a-z]` anything except a lower-case letter
+      * `**` (with `shopt -s globstar`) matches through sub-directories:
+        `ls ~/project/**/*.py`
+      * `shopt -s dotglob` makes `*` include hidden files
+      * `shopt -s nullglob` makes a pattern with no matches expand to nothing
+
+      :::tip
+      Before a destructive command, preview the expansion with echo:
+      `echo rm ~/logs/*.[0-9]` shows exactly which files would be removed.
+      :::
+  - title: The directory stack
+    content: |
+      `cd -` remembers one previous directory.  The **directory stack** remembers many:
+
+      ```
+      $ pushd /etc            # go to /etc, remember where we were
+      /etc ~
+      $ pushd /var/log
+      /var/log /etc ~
+      $ popd                  # back to /etc
+      /etc ~
+      $ dirs -v               # show the stack with numbers
+      ```
+
+      Useful in scripts and when juggling several directories.
+  - title: Inspecting paths and files
+    content: |
+      * `stat FILE` - every detail: size, inode, links, permissions, owner, three
+        time stamps (access, modify, change)
+      * `file FILE` - what kind of data it contains
+      * `realpath PATH` - the absolute, canonical path (links and `..` resolved)
+      * `basename /a/b/c.txt` → `c.txt`; `dirname /a/b/c.txt` → `/a/b`
+
+      ```
+      $ stat -c '%n %s bytes, modified %y' /etc/hostname
+      /etc/hostname 9 bytes, modified 2024-03-01 09:00:00
+      ```
+
+exercises:
+  - id: braces
+    title: Scaffold a project
+    instructions: |
+      Create this structure with as few commands as you like:
+
+          ~/webapp/src
+          ~/webapp/docs
+          ~/webapp/tests
+          ~/webapp/src/{models,views,controllers}
+
+      i.e. *src* must contain *models*, *views* and *controllers*.
+    setup: rm -rf {home}/webapp
+    reference: mkdir -p ~/webapp/{src/{models,views,controllers},docs,tests}
+    alternatives: ['mkdir -p ~/webapp/docs ~/webapp/tests ~/webapp/src/models ~/webapp/src/views ~/webapp/src/controllers']
+    method_patterns: ['\{']
+    checks:
+      - {type: dir_exists, path: ~/webapp/docs}
+      - {type: dir_exists, path: ~/webapp/tests}
+      - {type: dir_exists, path: ~/webapp/src/models}
+      - {type: dir_exists, path: ~/webapp/src/views}
+      - {type: dir_exists, path: ~/webapp/src/controllers}
+    hints:
+      - One mkdir command with nested braces can create the whole tree.
+      - mkdir -p creates parents; {a,b} expands into several names; braces can be nested.
+      - mkdir -p ~/webapp/{src/{models,views,controllers},docs,tests}
+      - "Brace expansion turns the single argument into five paths before mkdir runs. Check with echo ~/webapp/{src/{models,views,controllers},docs,tests}."
+  - id: inode
+    title: Investigate with stat
+    instructions: |
+      What is the **inode number** of **/etc/hostname** in your lab?  Type it.
+    answer_prompt: "Inode number:"
+    reference: stat /etc/hostname
+    checks:
+      - {type: answer, command: "stat -c %i /etc/hostname"}
+    hints:
+      - One command shows every piece of metadata about a file.
+      - stat FILE shows the Inode field; ls -i also prints it.
+      - stat /etc/hostname
+      - "stat prints 'Inode: NNN'; stat -c %i prints only the number."
+  - id: canonical
+    title: Resolve a path
+    instructions: |
+      What is the canonical absolute path of **/usr/bin/../lib/../share/./doc/..** ?
+      Type it.
+    answer_prompt: "Canonical path:"
+    reference: realpath /usr/bin/../lib/../share/./doc/..
+    test_answer: /usr/share
+    checks:
+      - {type: answer, regex: '/usr/share/?'}
+    hints:
+      - Work through the path one component at a time, or let a tool do it.
+      - realpath resolves . and .. (and symbolic links).
+      - realpath /usr/bin/../lib/../share/./doc/..
+      - "/usr/bin/.. = /usr; /usr/lib/.. = /usr; /usr/share/./doc/.. = /usr/share."
+
+quiz:
+  questions:
+    - id: q-brace
+      type: interpret
+      topic: Brace expansion
+      prompt: What does this command print?
+      output: "$ echo log{1..3}.txt"
+      options: ["log{1..3}.txt", "log1.txt log2.txt log3.txt", "log1..3.txt", "Only the files that exist"]
+      answer: 1
+    - id: q-brace-disk
+      type: truefalse
+      topic: Brace expansion
+      prompt: Brace expansion only produces names of files that already exist.
+      answer: false
+      explanation: Braces generate text; wildcards match existing files.
+    - id: q-bak
+      type: mcq
+      topic: Brace expansion
+      prompt: What does `cp nginx.conf{,.orig}` do?
+      options: [Copies nginx.conf to nginx.conf.orig, Copies all .orig files, Fails - empty braces, Renames nginx.conf]
+      answer: 0
+    - id: q-pushd
+      type: mcq
+      topic: The directory stack
+      prompt: Which command returns to the directory saved by the last pushd?
+      options: [cd -, popd, dirs, back]
+      answer: 1
+    - id: q-dirname
+      type: short
+      topic: Inspecting paths and files
+      prompt: What does `dirname /var/log/nginx/access.log` print?
+      answer: [/var/log/nginx]
+    - id: q-practical
+      type: practical
+      title: Monthly folders
+      topic: Brace expansion
+      prompt: |
+        Create the twelve directories **~/archive/2024-01** to **~/archive/2024-12**.
+      setup: rm -rf {home}/archive
+      reference: mkdir -p ~/archive/2024-{01..12}
+      alternatives: ['for m in 01 02 03 04 05 06 07 08 09 10 11 12; do mkdir -p ~/archive/2024-$m; done']
+      checks:
+        - {type: command, run: "ls /home/student/archive | tr '\\n' ' '",
+           stdout_equals: "2024-01 2024-02 2024-03 2024-04 2024-05 2024-06 2024-07 2024-08 2024-09 2024-10 2024-11 2024-12"}
+      hints:
+        - Brace expansion can produce a numeric sequence with leading zeros.
+        - "{01..12} expands to 01 02 ... 12."
+        - mkdir -p ~/archive/2024-{01..12}
+        - "The sequence expression keeps the zero padding because the start value 01 has two digits."

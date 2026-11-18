@@ -1,0 +1,218 @@
+id: b19-processes
+level: beginner
+module: working
+title: Understanding processes
+duration: 30
+objectives:
+  - Explain what a process is and what a PID is
+  - List processes with ps and watch them with top
+  - Run a program in the background
+  - Stop processes with kill and understand signals
+
+sections:
+  - title: Programs and processes
+    content: |
+      A **program** is a file on disk.  A **process** is a program that is *running*:
+      it has memory, open files, a current directory, an owner - and a unique number,
+      the **process ID (PID)**.
+
+      Run the same program three times and you have three processes.  Every process
+      except the first was started by another process, its **parent** (PPID).  The
+      first process, PID 1, is the **init system** (systemd on Ubuntu); every other
+      process descends from it.
+
+      ```
+      systemd (1)
+       ├── cron (98)
+       ├── sshd (120)
+       │    └── bash (2201)
+       │         └── ps (2240)
+       ...
+      ```
+  - title: Listing processes
+    content: |
+      * `ps` - processes in this terminal
+      * `ps aux` - **all** processes of all users, with CPU and memory use
+      * `ps -ef` - all processes, showing the parent PID
+      * `pstree` - the process tree
+      * `pgrep NAME` - PIDs of processes whose name matches
+
+      ```
+      $ ps aux | head -3
+      USER   PID %CPU %MEM    VSZ   RSS TTY  STAT START   TIME COMMAND
+      root     1  0.0  0.3  22000 12000 ?    Ss   09:00   0:01 /sbin/init
+      root    98  0.0  0.0   3800  2200 ?    Ss   09:00   0:00 /usr/sbin/cron -f
+      ```
+
+      `top` shows a live, updating view sorted by CPU use (press **q** to quit,
+      **M** to sort by memory).
+    examples:
+      - command: ps aux
+        explanation: Every process on the system.
+      - command: pstree -p
+        explanation: The tree of processes with PIDs.
+      - command: top
+        explanation: Live view - press q to quit.
+  - title: Foreground and background
+    content: |
+      Normally the shell waits for a command to finish - it runs in the
+      **foreground**.  Add `&` to run it in the **background** and get your prompt
+      back immediately:
+
+      ```
+      $ sleep 300 &
+      [1] 2251
+      $ jobs
+      [1]+  Running                 sleep 300 &
+      ```
+
+      `[1]` is the job number, 2251 the PID.  Job control is covered in depth in the
+      Intermediate level.
+  - title: Signals and kill
+    content: |
+      Processes are controlled with **signals**.  The `kill` command sends one:
+
+      | Signal | Number | Meaning |
+      |---|---|---|
+      | SIGTERM | 15 | "please terminate" - the default; the program can clean up |
+      | SIGKILL | 9 | terminate immediately; cannot be caught or ignored |
+      | SIGINT | 2 | interrupt - what Ctrl+C sends |
+      | SIGHUP | 1 | "hang up" - many services reload their configuration |
+
+      ```
+      $ kill 2251          # polite SIGTERM
+      $ kill -9 2251       # last resort
+      $ pkill sleep        # by name
+      ```
+
+      :::warning
+      Use `kill -9` only when a polite kill has failed: the process gets no chance to
+      save data or remove temporary files.
+      :::
+
+      You can only signal your own processes, unless you are root.
+
+exercises:
+  - id: find-pid
+    title: Find a process
+    instructions: |
+      A program called **tutor-daemon** is running in the lab.  Find its **PID** and
+      type it into the answer box.
+    answer_prompt: "PID:"
+    setup: |
+      pkill -x tutor-daemon; sleep 0.3
+      cp /usr/bin/sleep /usr/local/bin/tutor-daemon
+      su student -c 'nohup /usr/local/bin/tutor-daemon 100000 >/dev/null 2>&1 &'
+      sleep 0.5
+    cleanup: pkill -x tutor-daemon || true
+    reference: pgrep tutor-daemon
+    checks:
+      - {type: answer, command: "pgrep -x tutor-daemon | head -1"}
+    hints:
+      - List all processes and look for the name, or search by name directly.
+      - ps aux | grep tutor-daemon, or pgrep.
+      - pgrep tutor-daemon
+      - "pgrep tutor-daemon prints its PID; ps aux | grep tutor-daemon shows it in the second column."
+  - id: kill-runaway
+    title: Stop a runaway program
+    instructions: |
+      A program called **cpu-burner** is wasting CPU time.  **Stop it**.  Any running
+      instance of `cpu-burner` must be gone.
+    setup: |
+      pkill -x cpu-burner; sleep 0.3
+      printf '#!/bin/bash\nwhile :; do :; done\n' > /usr/local/bin/cpu-burner; chmod 755 /usr/local/bin/cpu-burner
+      su student -c 'nohup /usr/local/bin/cpu-burner >/dev/null 2>&1 &'
+      sleep 0.5
+    cleanup: pkill -x cpu-burner || true
+    reference: pkill cpu-burner
+    alternatives: ['kill $(pgrep -f cpu-burner)', 'killall cpu-burner']
+    checks:
+      - {type: process_absent, pattern: cpu-burner, fail: cpu-burner is still running.}
+    constraints:
+      - {type: process_running, pattern: /sbin/init, fail: The init system was affected!}
+    hints:
+      - Find the process, then send it a signal.
+      - top or ps aux shows it; kill PID or pkill NAME stops it.
+      - pkill cpu-burner
+      - "pkill cpu-burner sends SIGTERM to every process with that name. Alternatively find the PID with pgrep -f cpu-burner and run kill PID."
+  - id: background
+    title: Run a job in the background
+    instructions: |
+      Start the command `sleep 3000` **in the background** so that it keeps running
+      while you continue to use your shell.  The tutor checks that a `sleep 3000`
+      process owned by you is running.
+    setup: pkill -xf 'sleep 3000' || true
+    cleanup: pkill -xf 'sleep 3000' || true
+    reference: sleep 3000 &
+    solution: nohup sleep 3000 >/dev/null 2>&1 &
+    checks:
+      - {type: process_running, pattern: sleep 3000, user: student}
+    hints:
+      - A special character at the end of a command line runs it in the background.
+      - Put & at the end.
+      - sleep 3000 &
+      - "sleep 3000 & starts the command and immediately returns the prompt; jobs shows it running."
+
+quiz:
+  questions:
+    - id: q-pid1
+      type: mcq
+      topic: Programs and processes
+      prompt: What is PID 1 on a modern Ubuntu system?
+      options: [The kernel, bash, The init system (systemd), The login screen]
+      answer: 2
+    - id: q-program
+      type: truefalse
+      topic: Programs and processes
+      prompt: Running the same program twice creates two processes with different PIDs.
+      answer: true
+    - id: q-sigkill
+      type: mcq
+      topic: Signals and kill
+      prompt: Which signal cannot be caught or ignored by a process?
+      options: [SIGTERM (15), SIGINT (2), SIGKILL (9), SIGHUP (1)]
+      answer: 2
+    - id: q-default
+      type: short
+      topic: Signals and kill
+      prompt: Which signal does kill send if you do not specify one? (name or number)
+      answer: [SIGTERM, TERM, "15", "re:(sig)?term|15"]
+    - id: q-amp
+      type: mcq
+      topic: Foreground and background
+      prompt: What does the & at the end of a command line do?
+      options: [Runs the command as root, Runs it in the background, Runs it twice, Joins it with the next command]
+      answer: 1
+    - id: q-ps
+      type: interpret
+      topic: Listing processes
+      prompt: Which process uses the most memory?
+      output: |
+        USER   PID %CPU %MEM COMMAND
+        mysql  812  2.1 18.4 /usr/sbin/mysqld
+        www    950  0.5  3.2 nginx: worker
+        root     1  0.0  0.3 /sbin/init
+      options: [init, nginx, mysqld, Cannot tell]
+      answer: 2
+    - id: q-practical
+      type: practical
+      title: Clean up stray processes
+      topic: Signals and kill
+      prompt: |
+        Three processes named **stray-worker** are running.  Stop **all** of them, without
+        touching anything else.
+      setup: |
+        pkill -x stray-worker; sleep 0.3
+        cp /usr/bin/sleep /usr/local/bin/stray-worker
+        for i in 1 2 3; do su student -c 'nohup /usr/local/bin/stray-worker 9999 >/dev/null 2>&1 &'; done
+        sleep 0.5
+      cleanup: pkill -x stray-worker || true
+      reference: pkill stray-worker
+      alternatives: ['killall stray-worker', 'kill $(pgrep stray-worker)']
+      checks:
+        - {type: process_absent, pattern: stray-worker}
+      hints:
+        - You can signal processes by name.
+        - pkill or killall accept a name and signal every match.
+        - pkill stray-worker
+        - "pkill stray-worker terminates all three at once."

@@ -1,0 +1,159 @@
+id: a03-regex
+level: advanced
+module: scripting
+title: Regular expressions
+duration: 45
+objectives:
+  - Read and write basic and extended regular expressions
+  - Use anchors, character classes, quantifiers, groups and alternation
+  - Apply regexes with grep -E, sed -E, awk and bash [[ =~ ]]
+  - Avoid common regex pitfalls (greediness, escaping, globs vs regexes)
+
+sections:
+  - title: Regex vs glob
+    content: |
+      A **glob** (`*.txt`) matches *file names* in the shell.  A **regular expression**
+      describes *text patterns* for grep, sed, awk and most languages.  In a regex, `*` means
+      "zero or more of the previous item", and `.` means "any single character".
+  - title: The building blocks
+    content: |
+      | Element | Meaning |
+      |---|---|
+      | `.` | any one character |
+      | `^` `$` | start / end of line |
+      | `[abc]` `[a-z]` `[^0-9]` | one character from a set / range / not in set |
+      | `[[:digit:]]` `[[:alpha:]]` `[[:space:]]` | POSIX classes (locale-safe) |
+      | `*` `+` `?` | 0 or more, 1 or more, 0 or 1 |
+      | `{3}` `{2,5}` `{2,}` | exactly 3, 2-5, 2 or more |
+      | `(...)` | group (and capture) |
+      | `a|b` | alternation |
+      | `\.` | a literal dot (escape special characters) |
+      | `\b` (GNU) | word boundary |
+
+      **Basic** regexes (grep, sed default) need backslashes before `+ ? { } ( ) |`;
+      **extended** regexes (`grep -E`, `sed -E`, awk, bash `=~`) do not.  Use extended.
+  - title: Regexes in the tools
+    content: |
+      ```
+      grep -E '^(ERROR|WARN)' app.log                     # lines starting with ERROR or WARN
+      grep -Eo '[0-9]{1,3}(\.[0-9]{1,3}){3}' access.log  # print only IP-like matches
+      sed -E 's/([0-9]{4})-([0-9]{2})-([0-9]{2})/\3.\2.\1/' dates.txt   # reorder with captures
+      awk '$0 ~ /timeout/ {n++} END {print n}' app.log
+      [[ $email =~ ^[^@]+@[^@]+\.[a-z]{2,}$ ]] && echo valid
+      ```
+
+      In sed replacements, `\1` ... `\9` refer to captured groups and `&` to the whole match.
+      In bash, captures are in `BASH_REMATCH`.
+
+      :::tip
+      Regexes are **greedy**: `.*` takes as much as possible.  To match up to the first
+      quote use `[^"]*` rather than `.*`.
+      :::
+
+exercises:
+  - id: extract-emails
+    title: Extract e-mail addresses
+    instructions: |
+      **~/contacts.txt** is messy free text.  Create **~/emails.txt** containing every e-mail
+      address it mentions - **only the addresses**, one per line, **sorted and unique**.
+    setup: |
+      cat > {home}/contacts.txt <<'EOF'
+      Call Anna (anna.smith@example.com) or Bob <bob@mail.example.org> before Friday.
+      Ignore this: not-an-email@ and @nothing and plain text.
+      Support: support@example.com; sales: sales-team@example.co.uk
+      Anna again: anna.smith@example.com
+      EOF
+      chown student: {home}/contacts.txt; rm -f {home}/emails.txt
+    reference: grep -Eo '[[:alnum:]._%+-]+@[[:alnum:].-]+\.[[:alpha:]]{2,}' ~/contacts.txt | sort -u > ~/emails.txt
+    checks:
+      - {type: file_equals, path: ~/emails.txt,
+         content: "anna.smith@example.com\nbob@mail.example.org\nsales-team@example.co.uk\nsupport@example.com"}
+    hints:
+      - Print only the matching parts, not the whole lines.
+      - "grep -Eo prints each match on its own line; sort -u removes duplicates."
+      - "grep -Eo '[[:alnum:]._%+-]+@[[:alnum:].-]+\\.[[:alpha:]]{2,}' ~/contacts.txt | sort -u > ~/emails.txt"
+      - "The pattern requires something before @, a domain, a dot and a top-level domain of 2+ letters - so 'not-an-email@' and '@nothing' do not match."
+  - id: reformat-dates
+    title: Reformat dates with captures
+    instructions: |
+      **~/events.csv** has dates in US format `MM/DD/YYYY`.  Convert them **in place** to
+      ISO format `YYYY-MM-DD`, leaving everything else unchanged.
+    setup: |
+      printf 'launch,03/15/2024,London\nreview,11/02/2024,Paris\nparty,12/31/2024,Berlin\n' > {home}/events.csv
+      chown student: {home}/events.csv
+    reference: sed -E -i 's#([0-9]{2})/([0-9]{2})/([0-9]{4})#\3-\1-\2#' ~/events.csv
+    alternatives: ["awk -F, -v OFS=, '{split($2,d,\"/\"); $2=d[3]\"-\"d[1]\"-\"d[2]; print}' ~/events.csv > /tmp/e && cat /tmp/e > ~/events.csv"]
+    checks:
+      - {type: file_equals, path: ~/events.csv, content: "launch,2024-03-15,London\nreview,2024-11-02,Paris\nparty,2024-12-31,Berlin"}
+    hints:
+      - Capture month, day and year, then output them in a different order.
+      - "sed -E with ( ) groups and \\1 \\2 \\3 in the replacement; use a delimiter other than / (e.g. #)."
+      - "sed -E -i 's#([0-9]{2})/([0-9]{2})/([0-9]{4})#\\3-\\1-\\2#' ~/events.csv"
+      - "Group 1 = month, 2 = day, 3 = year; the replacement writes year-month-day."
+
+quiz:
+  questions:
+    - id: q-dot
+      type: mcq
+      topic: The building blocks
+      prompt: Which regex matches exactly the text 1.5 (and not 125)?
+      options: ['1.5', '1\.5', '1*5', '1[.]?5']
+      answer: 1
+    - id: q-anchor
+      type: mcq
+      topic: The building blocks
+      prompt: Which pattern matches lines that consist only of digits?
+      options: ['[0-9]+', '^[0-9]+$', '^[0-9]', '[^0-9]']
+      answer: 1
+    - id: q-ere
+      type: truefalse
+      topic: The building blocks
+      prompt: In grep without -E, the + in 'ab+' is treated as a literal plus sign.
+      answer: true
+    - id: q-greedy
+      type: interpret
+      topic: Regexes in the tools
+      prompt: What does this print?
+      output: "$ echo 'a=\"x\" b=\"y\"' | grep -o '\".*\"'"
+      options: ['"x"', '"x" b="y"', '"y"', nothing]
+      answer: 1
+    - id: q-backref
+      type: short
+      topic: Regexes in the tools
+      prompt: In a sed replacement, what refers to the second captured group?
+      answer: ['\2']
+    - id: q-glob
+      type: troubleshoot
+      topic: Regex vs glob
+      prompt: "`grep '*.log' files.txt` finds nothing although files.txt contains app.log.  Why?"
+      options:
+        - grep needs -r
+        - "In a regex * repeats the previous item; the intended regex is '\\.log$'"
+        - The quotes are wrong
+        - grep ignores dots
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Validate input
+      topic: Regexes in the tools
+      prompt: |
+        Write an executable script **~/valid-user.sh** that exits **0** if its argument is a
+        valid user name - starts with a lower-case letter, followed by 2 to 15 lower-case
+        letters, digits, `-` or `_` (3-16 characters in total) - and **1** otherwise.  It
+        must print nothing.
+      setup: rm -f {home}/valid-user.sh
+      reference: |
+        printf '#!/bin/bash\n[[ $1 =~ ^[a-z][a-z0-9_-]{2,15}$ ]]\n' > ~/valid-user.sh
+        chmod +x ~/valid-user.sh
+      checks:
+        - {type: script, path: ~/valid-user.sh, args: [alice], exit_code: 0, stdout_equals: ""}
+        - {type: script, path: ~/valid-user.sh, args: [web_admin-2], exit_code: 0}
+        - {type: script, path: ~/valid-user.sh, args: [ab], exit_code: 1, fail: "'ab' is too short but was accepted."}
+        - {type: script, path: ~/valid-user.sh, args: [2fast], exit_code: 1, fail: "'2fast' starts with a digit but was accepted."}
+        - {type: script, path: ~/valid-user.sh, args: [Alice], exit_code: 1, fail: "'Alice' has a capital letter but was accepted."}
+        - {type: script, path: ~/valid-user.sh, args: [averyveryverylongname], exit_code: 1, fail: "A 21-character name was accepted."}
+      hints:
+        - "bash's [[ =~ ]] tests an extended regex; the status of the test can be the script's status."
+        - "Anchor both ends: ^ and $."
+        - "[[ $1 =~ ^[a-z][a-z0-9_-]{2,15}$ ]]"
+        - "One letter + 2..15 more characters = 3..16 total. Without anchors 'Alice' would match because 'lice' is inside it."

@@ -1,0 +1,187 @@
+id: b07-navigating
+level: beginner
+module: filesystem
+title: Navigating directories
+duration: 20
+objectives:
+  - Move around the filesystem with cd
+  - Return home and to the previous directory quickly
+  - List directories in useful ways with ls
+  - Visualise a directory tree
+
+sections:
+  - title: Changing directory with cd
+    content: |
+      `cd` (change directory) moves your shell to another directory.  It accepts any
+      path, absolute or relative:
+
+      ```
+      $ cd /etc
+      $ pwd
+      /etc
+      $ cd ..
+      $ pwd
+      /
+      $ cd home/student
+      $ pwd
+      /home/student
+      ```
+
+      The prompt shows where you are: `student@linuxlab:/etc$`.  In the prompt your
+      home directory is abbreviated to `~`.
+  - title: Shortcuts
+    content: |
+      | Command | Goes to |
+      |---|---|
+      | `cd` (no argument) | your home directory |
+      | `cd ~` | your home directory |
+      | `cd -` | the **previous** directory (toggle back and forth) |
+      | `cd ..` | the parent directory |
+
+      `cd -` is very handy when you work in two places at once, such as a
+      configuration directory and a log directory.
+    examples:
+      - command: cd /var/log
+        explanation: Go to the log directory.
+      - command: cd -
+        explanation: Jump back to where you were before.
+      - command: cd
+        explanation: Go home.
+  - title: Listing with ls, revisited
+    content: |
+      A few more `ls` options make exploring easier:
+
+      * `ls -F` marks directories with `/` and programs with `*`
+      * `ls -lt` sorts by modification time, newest first
+      * `ls -lS` sorts by size, largest first
+      * `ls -R` lists sub-directories recursively
+      * `ls -d dir` lists the directory itself rather than its contents
+
+      :::tip
+      `ls -ltr` (long, by time, reversed) puts the most recently changed files at the
+      bottom - right above your prompt where you can see them.
+      :::
+  - title: Seeing the whole tree
+    content: |
+      The `tree` program draws a directory and everything below it.  It is not
+      installed in a minimal system - you will learn to install it in the package
+      management lesson.  Until then, `ls -R` or `find` give similar information:
+
+      ```
+      $ find ~/projects
+      /home/student/projects
+      /home/student/projects/website
+      /home/student/projects/website/index.html
+      ```
+    more: |
+      Errors you will meet while navigating:
+
+      * `No such file or directory` - the path is wrong (typo, wrong case, wrong
+        starting point).  Use Tab completion.
+      * `Not a directory` - you tried to cd into a file.
+      * `Permission denied` - the directory exists but you may not enter it (try
+        `cd /root`).  Permissions are covered later in this level.
+
+exercises:
+  - id: treasure
+    title: Treasure hunt
+    instructions: |
+      A trail of clues starts in **/opt/hunt/start**.  Go there, read the file
+      `clue.txt`, and follow the directions from clue to clue.  The last clue contains
+      a **password** - type it in the answer box.
+    answer_prompt: "Password:"
+    setup: |
+      rm -rf /opt/hunt; mkdir -p /opt/hunt/start /opt/hunt/forest/cave /opt/hunt/river/bridge/under
+      echo "Go up one level, then into forest/cave and read clue.txt" > /opt/hunt/start/clue.txt
+      echo "Go to /opt/hunt/river/bridge/under (an absolute path!) and read clue.txt" > /opt/hunt/forest/cave/clue.txt
+      echo "Well done. The password is: lighthouse" > /opt/hunt/river/bridge/under/clue.txt
+      chmod -R a+rX /opt/hunt
+    reference: cd /opt/hunt/start && cat clue.txt && cd ../forest/cave && cat clue.txt && cd /opt/hunt/river/bridge/under && cat clue.txt
+    test_answer: lighthouse
+    checks:
+      - {type: answer, equals: lighthouse}
+    hints:
+      - Use cd to move and cat to read each clue.
+      - cd /opt/hunt/start, then cat clue.txt; .. means one level up.
+      - "cd /opt/hunt/start; cat clue.txt; cd ../forest/cave; cat clue.txt"
+      - "Follow the three clues: start -> ../forest/cave -> /opt/hunt/river/bridge/under. The last file reveals the password lighthouse."
+  - id: newest
+    title: Find the newest file
+    instructions: |
+      The directory **/opt/logs** contains several files.  Which one was **modified most
+      recently**?  Type its name (just the file name).
+    answer_prompt: "Newest file:"
+    setup: |
+      rm -rf /opt/logs; mkdir -p /opt/logs; cd /opt/logs
+      for f in alpha beta gamma delta epsilon; do echo $f > $f.log; done
+      touch -d '2 days ago' alpha.log; touch -d '5 days ago' beta.log; touch -d '1 hour ago' gamma.log
+      touch -d '3 hours ago' delta.log; touch -d '9 days ago' epsilon.log
+    reference: ls -lt /opt/logs
+    checks:
+      - {type: answer, command: "ls -t /opt/logs | head -1"}
+    hints:
+      - ls can sort by modification time.
+      - The -t option sorts newest first; -l shows the dates.
+      - ls -lt /opt/logs
+      - "ls -lt /opt/logs lists gamma.log first - it was changed an hour ago."
+
+quiz:
+  questions:
+    - id: q-cd-dash
+      type: mcq
+      topic: Shortcuts
+      prompt: What does `cd -` do?
+      options: [Goes to the root directory, Goes to the previous directory, Goes up one level, Shows an error]
+      answer: 1
+    - id: q-cd-home
+      type: truefalse
+      topic: Shortcuts
+      prompt: Typing cd with no argument takes you to your home directory.
+      answer: true
+    - id: q-ls-t
+      type: mcq
+      topic: Listing with ls, revisited
+      prompt: Which command lists files sorted by size, largest first?
+      options: [ls -lt, ls -lS, ls -lr, ls -la]
+      answer: 1
+    - id: q-err
+      type: troubleshoot
+      topic: Seeing the whole tree
+      prompt: "`cd /etc/hostname` prints an error.  Which error and why?"
+      options:
+        - "Permission denied - /etc is protected"
+        - "Not a directory - /etc/hostname is a file"
+        - "No such file or directory - the file does not exist"
+        - "Command not found"
+      answer: 1
+    - id: q-prompt
+      type: interpret
+      topic: Changing directory with cd
+      prompt: After the commands below, what is the current directory?
+      output: |
+        $ cd /usr/share
+        $ cd ../lib
+        $ cd -
+      options: [/usr/lib, /usr/share, /usr, /home/student]
+      answer: 1
+      explanation: cd - returns to the previous directory, /usr/share.
+    - id: q-practical
+      type: practical
+      title: Map a directory
+      topic: Seeing the whole tree
+      prompt: |
+        Somewhere under **/opt/maze** there is exactly one file called **exit.txt**.
+        Write its **absolute path** into the answer box.
+      answer_prompt: "Absolute path:"
+      setup: |
+        rm -rf /opt/maze; mkdir -p /opt/maze/{north,south,east,west}/{room1,room2}
+        touch /opt/maze/east/room2/exit.txt; chmod -R a+rX /opt/maze
+      reference: ls -R /opt/maze
+      test_answer: /opt/maze/east/room2/exit.txt
+      checks:
+        - {type: answer, regex: '/opt/maze/east/room2/exit\.txt/?'}
+      hints:
+        - List the directory recursively.
+        - ls -R shows every sub-directory and its contents; find lists every path.
+        - "ls -R /opt/maze    or    find /opt/maze"
+        - "find /opt/maze prints /opt/maze/east/room2/exit.txt among the paths."

@@ -1,0 +1,183 @@
+id: i15-package-management
+level: intermediate
+module: software
+title: Package management
+duration: 35
+objectives:
+  - Explain packages, repositories and dependencies
+  - Search, inspect, install, upgrade and remove software with apt
+  - Query installed packages with dpkg
+  - Understand the difference between remove and purge
+
+sections:
+  - title: Packages and repositories
+    content: |
+      Linux software is normally installed as **packages**: archives containing the
+      program, its documentation and configuration, plus metadata - name, version,
+      description and **dependencies** (other packages it needs).
+
+      Packages come from **repositories**: servers (or directories) holding thousands of
+      packages and an index of them.  On Ubuntu they are listed in
+      `/etc/apt/sources.list.d/`.  The distribution signs its repositories, so apt can
+      verify that packages have not been tampered with.
+
+      ```
+       repository index  --apt update-->  local package lists
+       apt install foo   --> resolve dependencies --> download .deb files --> dpkg unpacks & configures
+      ```
+
+      :::note
+      Your laboratory has no Internet access, so it uses a small **offline repository**
+      in /opt/lab-repo containing: tree, sl, figlet, hello, jq, ncdu, cowsay and htop.
+      Everything else works exactly as on a connected server.
+      :::
+  - title: Everyday apt
+    content: |
+      | Command | Purpose |
+      |---|---|
+      | `sudo apt update` | refresh the package lists from the repositories |
+      | `apt search WORD` | search names and descriptions |
+      | `apt show PKG` | details: version, size, dependencies, description |
+      | `sudo apt install PKG` | install (with dependencies) |
+      | `sudo apt upgrade` | upgrade all installed packages |
+      | `sudo apt remove PKG` | remove the program, keep its configuration files |
+      | `sudo apt purge PKG` | remove program **and** configuration |
+      | `sudo apt autoremove` | remove dependencies nothing needs any more |
+      | `apt list --installed` | what is installed |
+
+      `apt` is the friendly front end; scripts traditionally use `apt-get` and
+      `apt-cache`, which have a stable output format.
+    examples:
+      - command: apt search figlet
+        explanation: Find a package.
+      - command: apt show jq
+        explanation: Details of a package before installing.
+  - title: dpkg - the low level
+    content: |
+      `dpkg` installs individual .deb files and knows what is installed:
+
+      | Command | Purpose |
+      |---|---|
+      | `dpkg -l` / `dpkg -l 'lib*'` | list installed packages |
+      | `dpkg -L PKG` | files a package installed |
+      | `dpkg -S /usr/bin/ls` | which package owns a file |
+      | `dpkg -s PKG` | status of a package |
+      | `sudo dpkg -i file.deb` | install a downloaded .deb (no dependency resolution!) |
+
+      If `dpkg -i` complains about missing dependencies, `sudo apt -f install` fixes it.
+  - title: Other distributions
+    content: |
+      The concepts are the same everywhere; the commands differ:
+
+      | Task | Debian/Ubuntu | Fedora/RHEL | openSUSE | Arch |
+      |---|---|---|---|---|
+      | install | `apt install` | `dnf install` | `zypper install` | `pacman -S` |
+      | remove | `apt remove` | `dnf remove` | `zypper remove` | `pacman -R` |
+      | which package owns a file | `dpkg -S` | `rpm -qf` | `rpm -qf` | `pacman -Qo` |
+
+      Ubuntu also offers **snap** packages (self-contained, sandboxed, auto-updated) and
+      many desktops support **Flatpak**.
+
+exercises:
+  - id: install-tree
+    title: Install a package
+    instructions: |
+      Install the package **tree** and use it to look at your home directory.
+    setup: apt-get remove -y -q tree >/dev/null 2>&1 || true
+    reference: sudo apt install -y tree
+    alternatives: ['sudo apt-get install -y tree', 'sudo dpkg -i /opt/lab-repo/tree_*.deb']
+    checks:
+      - {type: package_installed, name: tree}
+      - {type: command, run: "tree --version", exit_code: 0, fail: "The tree command does not work."}
+    hints:
+      - Software is installed with the package manager, as root.
+      - sudo apt install PACKAGE
+      - sudo apt install tree
+      - "sudo apt install tree resolves dependencies, unpacks the package and configures it. Then run tree ~."
+  - id: which-package
+    title: Who owns this file?
+    instructions: |
+      Which **package** installed the file **/usr/bin/pgrep**?  Type the package name.
+    answer_prompt: "Package:"
+    reference: dpkg -S /usr/bin/pgrep
+    checks:
+      - {type: answer, command: "dpkg -S /usr/bin/pgrep | cut -d: -f1"}
+    hints:
+      - The package database knows which package owns every file.
+      - dpkg -S searches for a path.
+      - dpkg -S /usr/bin/pgrep
+      - "dpkg -S /usr/bin/pgrep prints procps: /usr/bin/pgrep - the package is procps."
+  - id: purge
+    title: Remove completely
+    instructions: |
+      The package **figlet** is installed.  Remove it **including its configuration**
+      (so that dpkg no longer lists it at all, not even as "rc").
+    setup: |
+      apt-get install -y -q figlet >/dev/null 2>&1
+    reference: sudo apt purge -y figlet
+    alternatives: ['sudo dpkg --purge figlet', 'sudo apt-get remove --purge -y figlet']
+    wrong:
+      - {run: sudo apt remove -y figlet, expect: partial}
+    checks:
+      - {type: package_installed, name: figlet, installed: false}
+      - {type: command, run: "dpkg -l figlet 2>/dev/null | grep -c '^rc' || true", stdout_equals: "0",
+         fail: "figlet was removed but its configuration remains (status rc). Use purge."}
+    hints:
+      - There are two ways to remove - one keeps configuration files.
+      - apt purge removes the package and its configuration.
+      - sudo apt purge figlet
+      - "apt remove leaves the package in state rc (removed, config remains); apt purge (or dpkg --purge) removes everything."
+
+quiz:
+  questions:
+    - id: q-update
+      type: mcq
+      topic: Everyday apt
+      prompt: What does `sudo apt update` do?
+      options: [Upgrades all packages, Refreshes the lists of available packages, Updates the kernel, Removes old packages]
+      answer: 1
+    - id: q-purge
+      type: mcq
+      topic: Everyday apt
+      prompt: What is the difference between apt remove and apt purge?
+      options: [None, purge also deletes the package's system-wide configuration files, remove also deletes user data, purge only removes dependencies]
+      answer: 1
+    - id: q-dpkg-deps
+      type: truefalse
+      topic: dpkg - the low level
+      prompt: dpkg -i automatically downloads and installs missing dependencies.
+      answer: false
+    - id: q-owner
+      type: short
+      topic: dpkg - the low level
+      prompt: Which dpkg option lists the files installed by a package?
+      answer: ["-L", "--listfiles"]
+    - id: q-dnf
+      type: mcq
+      topic: Other distributions
+      prompt: Which command installs nginx on Fedora?
+      options: [apt install nginx, dnf install nginx, pacman -S nginx, zypper add nginx]
+      answer: 1
+    - id: q-signed
+      type: truefalse
+      topic: Packages and repositories
+      prompt: apt verifies repository signatures so that tampered packages are rejected.
+      answer: true
+    - id: q-practical
+      type: practical
+      title: Install and inspect
+      topic: Everyday apt
+      prompt: |
+        Install **jq** and save the list of files that the **jq** package installed into
+        **~/jq-files.txt**.
+      setup: |
+        apt-get purge -y -q jq libjq1 libonig5 >/dev/null 2>&1 || true; rm -f {home}/jq-files.txt
+      reference: sudo apt install -y jq && dpkg -L jq > ~/jq-files.txt
+      checks:
+        - {type: package_installed, name: jq}
+        - {type: file_contains, path: ~/jq-files.txt, text: /usr/bin/jq}
+      hints:
+        - Install, then ask dpkg for the file list.
+        - "sudo apt install jq; dpkg -L jq > ~/jq-files.txt"
+        - sudo apt install -y jq && dpkg -L jq > ~/jq-files.txt
+        - "apt pulls in libjq1 and libonig5 automatically; dpkg -L lists every path jq owns."

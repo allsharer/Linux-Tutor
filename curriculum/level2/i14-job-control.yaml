@@ -1,0 +1,136 @@
+id: i14-job-control
+level: intermediate
+module: processes
+title: Job control
+duration: 25
+objectives:
+  - Suspend, resume and background jobs with Ctrl+Z, bg and fg
+  - List and address jobs with jobs and %N
+  - Keep programs running after logout with nohup, disown and terminal multiplexers
+  - Understand foreground process groups and SIGHUP
+
+sections:
+  - title: Jobs
+    content: |
+      A **job** is a pipeline started from your interactive shell.  The shell tracks
+      them:
+
+      ```
+      $ sleep 600 &
+      [1] 3100
+      $ vim notes.txt         # press Ctrl+Z inside vim
+      [2]+  Stopped                 vim notes.txt
+      $ jobs -l
+      [1]-  3100 Running            sleep 600 &
+      [2]+  3105 Stopped            vim notes.txt
+      ```
+
+      `+` marks the current job, `-` the previous one.
+  - title: Moving jobs around
+    content: |
+      | Action | How |
+      |---|---|
+      | suspend the foreground job | **Ctrl+Z** (sends SIGTSTP) |
+      | continue it in the background | `bg` or `bg %2` |
+      | bring a job to the foreground | `fg` or `fg %1` |
+      | kill a job | `kill %1` |
+      | wait for background jobs | `wait` |
+
+      A common sequence: you start a long command, realise it will take a while, press
+      Ctrl+Z, then `bg` - and you have your prompt back while it keeps working.
+  - title: Surviving logout
+    content: |
+      When your terminal closes, the shell sends **SIGHUP** to its jobs, which usually
+      ends them.  Options:
+
+      * `nohup cmd &` - start immune to SIGHUP, output goes to nohup.out;
+      * `disown %1` - remove an already running job from the shell's job table;
+      * `setsid cmd` - run in a new session, detached from the terminal;
+      * **tmux** or **screen** - terminal multiplexers: detach a whole session and
+        re-attach later, even from another computer.  The administrator's favourite.
+      * for real services: a **systemd unit** (Advanced level).
+
+exercises:
+  - id: survive
+    title: Keep it running
+    instructions: |
+      Start the command `sleep 5000` so that it **ignores the hang-up signal** (it would
+      survive closing your terminal) and runs in the background.
+
+      The tutor checks for a running `sleep 5000` process that **ignores SIGHUP**.
+    setup: pkill -xf 'sleep 5000' || true
+    cleanup: pkill -xf 'sleep 5000' || true
+    reference: nohup sleep 5000 &
+    alternatives: ['nohup sleep 5000 > /dev/null 2>&1 &']
+    wrong:
+      - {run: "setsid sleep 5000 < /dev/null > /dev/null 2>&1 &", expect: partial}
+    checks:
+      - {type: process_running, pattern: "^sleep 5000$", user: student}
+      - type: command
+        run: "p=$(pgrep -xf 'sleep 5000' | head -1); [ -n \"$p\" ] && awk '/SigIgn/ {print $2}' /proc/$p/status"
+        stdout_regex: '[13579bdf]$'
+        fail: "The sleep process does not ignore SIGHUP - start it with nohup."
+    hints:
+      - One command prefix makes a program immune to hang-ups.
+      - nohup COMMAND &
+      - nohup sleep 5000 &
+      - "nohup sets SIGHUP to 'ignored' before running sleep, so closing the terminal will not stop it. The tutor reads the SigIgn mask in /proc/PID/status to confirm."
+
+quiz:
+  questions:
+    - id: q-ctrlz
+      type: mcq
+      topic: Moving jobs around
+      prompt: What does Ctrl+Z do to the foreground job?
+      options: [Kills it, Suspends (stops) it, Sends it to the background running, Saves it]
+      answer: 1
+    - id: q-bg
+      type: mcq
+      topic: Moving jobs around
+      prompt: After Ctrl+Z, which command lets the job continue running in the background?
+      options: [fg, bg, jobs, nohup]
+      answer: 1
+    - id: q-fg
+      type: short
+      topic: Moving jobs around
+      prompt: Which command brings job number 2 to the foreground? (command and job spec)
+      answer: ["fg %2", "fg 2", "%2"]
+    - id: q-hup
+      type: truefalse
+      topic: Surviving logout
+      prompt: When a terminal closes, its shell sends SIGHUP to its jobs.
+      answer: true
+    - id: q-tmux
+      type: mcq
+      topic: Surviving logout
+      prompt: Which tool lets you detach a whole terminal session and re-attach later from another login?
+      options: [nohup, tmux, disown, bg]
+      answer: 1
+    - id: q-jobs
+      type: interpret
+      topic: Jobs
+      prompt: Which job does a plain `fg` resume?
+      output: |
+        [1]-  Stopped    vim a.txt
+        [2]+  Stopped    less big.log
+      options: [Job 1 - vim, Job 2 - less, Both, Neither]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Background worker
+      topic: Jobs
+      prompt: |
+        Start **two** background processes: `sleep 7001` and `sleep 7002`.  Both must be
+        running when you submit.
+      setup: pkill -xf 'sleep 700[12]' || true
+      cleanup: pkill -xf 'sleep 700[12]' || true
+      reference: sleep 7001 & sleep 7002 &
+      solution: nohup sleep 7001 >/dev/null 2>&1 & nohup sleep 7002 >/dev/null 2>&1 &
+      checks:
+        - {type: process_running, pattern: "^sleep 7001$"}
+        - {type: process_running, pattern: "^sleep 7002$"}
+      hints:
+        - Each command needs its own &.
+        - "cmd1 & cmd2 & starts both in the background."
+        - sleep 7001 & sleep 7002 &
+        - "jobs then lists two running jobs."

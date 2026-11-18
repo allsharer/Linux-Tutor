@@ -1,0 +1,170 @@
+id: i22-logs-monitoring
+level: intermediate
+module: operations
+title: Logs and system monitoring
+duration: 35
+objectives:
+  - Find and read log files in /var/log and the systemd journal
+  - Filter logs by time, unit and priority
+  - Write your own log messages with logger
+  - Monitor resources with top, free, vmstat, iostat and watch
+
+sections:
+  - title: Where logs live
+    content: |
+      Two logging systems coexist on Ubuntu:
+
+      * the **systemd journal** - binary, indexed, read with `journalctl`;
+      * **text files in /var/log**, written by rsyslog (if installed) and by applications:
+
+      | File | Contents |
+      |---|---|
+      | `/var/log/syslog` | general system messages (rsyslog) |
+      | `/var/log/auth.log` | logins, sudo, SSH |
+      | `/var/log/kern.log` | kernel messages |
+      | `/var/log/apt/history.log` | package installs and removals |
+      | `/var/log/nginx/`, `/var/log/apache2/` | web server access and error logs |
+
+      Your lab uses the journal only (no rsyslog), like many container and cloud images.
+      `logrotate` compresses and deletes old log files so they do not fill the disk.
+  - title: journalctl essentials
+    content: |
+      ```
+      journalctl -e                     # jump to the end
+      journalctl -f                     # follow new messages (like tail -f)
+      journalctl -u ssh                 # one service (unit)
+      journalctl -u ssh --since "1 hour ago"
+      journalctl -p err                 # priority err and worse
+      journalctl -b                     # since this boot
+      journalctl -t mytag               # by syslog identifier (tag)
+      ```
+
+      Members of the groups `adm` or `systemd-journal` (student is) may read the whole journal.
+    examples:
+      - command: journalctl -n 20 --no-pager
+        explanation: The last 20 messages.
+      - command: journalctl -u cron --no-pager | tail
+        explanation: Messages from the cron service.
+  - title: Writing log messages
+    content: |
+      Scripts should log rather than print to nowhere.  `logger` sends a message to the
+      system log:
+
+      ```
+      logger "backup finished"
+      logger -t backup -p user.err "backup FAILED: disk full"
+      ```
+
+      `-t` sets the tag (identifier), `-p` the facility.priority.  Priorities from most
+      to least severe: emerg, alert, crit, **err**, **warning**, notice, **info**, debug.
+  - title: Watching resources
+    content: |
+      | Tool | Shows |
+      |---|---|
+      | `top` / `htop` | processes, CPU, memory, live |
+      | `free -h` | memory and swap |
+      | `vmstat 2` | CPU, memory, swap and I/O every 2 s |
+      | `iostat -x 2` | per-disk utilisation (package sysstat) |
+      | `df -h`, `du` | disk space |
+      | `watch -n 5 'df -h /'` | re-run any command every 5 s |
+      | `uptime` | load averages |
+
+      Good monitoring answers: *Is it up?  Is it slow?  Is it running out of something?*
+
+exercises:
+  - id: logger
+    title: Log a message
+    instructions: |
+      Write the message **`deployment 42 completed`** to the system log with the tag
+      (identifier) **deploy**.
+    reference: logger -t deploy "deployment 42 completed"
+    alternatives: ['echo "deployment 42 completed" | systemd-cat -t deploy']
+    checks:
+      - {type: journal_contains, tag: deploy, regex: 'deployment 42 completed'}
+    setup: journalctl --rotate >/dev/null 2>&1; journalctl --vacuum-time=1s >/dev/null 2>&1; true
+    hints:
+      - There is a command made for writing to the system log.
+      - logger, with -t for the tag.
+      - logger -t deploy "deployment 42 completed"
+      - "journalctl -t deploy shows your message."
+  - id: failed-logins
+    title: Investigate the journal
+    instructions: |
+      The service **tutor-demo** wrote several messages to the journal, one of them at
+      priority **err**.  What **error code** does that error message mention?  (Type just
+      the code, e.g. `E123`.)
+    answer_prompt: "Error code:"
+    setup: |
+      code="E$(( 100 + RANDOM % 900 ))"; echo "$code" > /root/.demo-code
+      logger -t tutor-demo -p user.info "starting up"
+      logger -t tutor-demo -p user.warning "configuration file uses deprecated option"
+      logger -t tutor-demo -p user.err "fatal: cannot open database, code $code"
+      logger -t tutor-demo -p user.info "shutting down"
+      sleep 0.5
+    reference: journalctl -t tutor-demo -p err
+    checks:
+      - {type: answer, command: "cat /root/.demo-code"}
+    hints:
+      - Filter the journal by identifier and by priority.
+      - "journalctl -t TAG selects the program; -p err shows only errors."
+      - journalctl -t tutor-demo -p err
+      - "The err line reads 'fatal: cannot open database, code E...'."
+
+quiz:
+  questions:
+    - id: q-follow
+      type: mcq
+      topic: journalctl essentials
+      prompt: Which option makes journalctl show new messages as they arrive?
+      options: [-e, -f, -b, -k]
+      answer: 1
+    - id: q-unit
+      type: short
+      topic: journalctl essentials
+      prompt: Write the journalctl command that shows messages of the nginx service only.
+      answer: ["journalctl -u nginx", "journalctl -u nginx.service", "re:journalctl\\s+(-u|--unit=?)\\s*nginx(\\.service)?"]
+    - id: q-auth
+      type: mcq
+      topic: Where logs live
+      prompt: On an Ubuntu server with rsyslog, which file records sudo use and SSH logins?
+      options: [/var/log/syslog, /var/log/auth.log, /var/log/kern.log, /var/log/dpkg.log]
+      answer: 1
+    - id: q-rotate
+      type: truefalse
+      topic: Where logs live
+      prompt: logrotate keeps log files from growing without limit by rotating, compressing and deleting old ones.
+      answer: true
+    - id: q-prio
+      type: mcq
+      topic: Writing log messages
+      prompt: Which priority is the most severe?
+      options: [warning, err, crit, notice]
+      answer: 2
+    - id: q-vmstat
+      type: interpret
+      topic: Watching resources
+      prompt: "In vmstat output, the 'si' and 'so' columns are consistently high.  What does that indicate?"
+      output: |
+        procs -----------memory---------- ---swap-- -----io----
+         r  b   swpd   free   buff  cache   si   so    bi    bo
+         3  2 1890000  12000   1000  20000  850  920   900  1200
+      options: [The system is swapping heavily - it is short of memory, The disk is full, The network is slow, Everything is normal]
+      answer: 0
+    - id: q-practical
+      type: practical
+      title: Errors since boot
+      topic: journalctl essentials
+      prompt: |
+        Save all journal messages of priority **err or worse** from the **current boot**
+        into **~/boot-errors.txt** (use `--no-pager`).  The file may be empty if there are
+        none - but it must exist, and must be produced with journalctl.
+      setup: |
+        rm -f {home}/boot-errors.txt; logger -p user.err -t tutor-check "simulated error for the exercise"
+      reference: journalctl -b -p err --no-pager > ~/boot-errors.txt
+      checks:
+        - {type: file_contains, path: ~/boot-errors.txt, text: simulated error for the exercise}
+      hints:
+        - Combine the boot filter and the priority filter.
+        - "-b means this boot; -p err selects err, crit, alert, emerg."
+        - journalctl -b -p err --no-pager > ~/boot-errors.txt
+        - "The simulated error logged by the exercise appears in the file."

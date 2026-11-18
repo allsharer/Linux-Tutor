@@ -1,0 +1,203 @@
+id: i04-links
+level: intermediate
+module: files
+title: Symbolic and hard links
+duration: 30
+objectives:
+  - Explain inodes and directory entries
+  - Create and recognise hard links and symbolic links
+  - Predict what happens when the original file is moved or deleted
+  - Use links in real administration tasks
+
+sections:
+  - title: Inodes and names
+    content: |
+      On a Linux filesystem the data and metadata of a file (owner, mode, size, where
+      the blocks are) live in an **inode**, identified by a number.  A **directory** is
+      just a list of *names*, each pointing to an inode.
+
+      ```
+      directory /home/student          inode 393 412
+      +-------------+-------+          +---------------------+
+      | notes.txt   |  393412 ------>  | owner, mode, size,  |
+      | todo.txt    |  393420 |        | data blocks...      |
+      +-------------+-------+          | link count: 1       |
+                                       +---------------------+
+      ```
+
+      `ls -i` shows inode numbers; the second column of `ls -l` is the **link count**.
+  - title: Hard links
+    content: |
+      A **hard link** is a second name for the same inode:
+
+      ```
+      $ ln notes.txt notes-hard.txt
+      $ ls -li notes*
+      393412 -rw-r--r-- 2 student student 30 notes-hard.txt
+      393412 -rw-r--r-- 2 student student 30 notes.txt
+      ```
+
+      Both names are equal - neither is the "original".  Editing through one changes
+      the other.  The data is only freed when the **last** name is removed (link count 0).
+
+      Limits: hard links cannot cross filesystems, and you cannot hard-link
+      directories.
+  - title: Symbolic links
+    content: |
+      A **symbolic (soft) link** is a small special file containing a *path*:
+
+      ```
+      $ ln -s /etc/nginx/sites-available/blog /etc/nginx/sites-enabled/blog
+      $ ls -l /etc/nginx/sites-enabled/
+      lrwxrwxrwx 1 root root 31 ... blog -> /etc/nginx/sites-available/blog
+      ```
+
+      Symlinks can point to directories and across filesystems.  If the target is
+      deleted or moved, the link becomes **broken** (dangling).
+
+      :::tip
+      `ln -s TARGET LINKNAME` - target first, like `cp SOURCE DEST`.  A relative target
+      is interpreted relative to the link's directory, not your current directory.
+      :::
+    examples:
+      - command: ls -l /bin
+        explanation: On modern Ubuntu /bin is a symlink to usr/bin.
+      - command: readlink -f /usr/bin/python3
+        explanation: Follow a chain of links to the real file.
+  - title: Links in practice
+    content: |
+      * **Versions**: `/opt/app/current -> /opt/app/releases/2024-03-01` - deploy a new
+        release, then switch the link atomically.
+      * **Enabling configuration**: Debian's nginx and Apache use `sites-enabled/`
+        symlinks into `sites-available/`.
+      * **Alternatives**: `/usr/bin/editor` is a link chain managed by
+        `update-alternatives`.
+      * **Backups**: tools such as rsync `--link-dest` use hard links so that unchanged
+        files take no extra space in daily snapshots.
+
+      `find -L dir -type l` lists broken links; `find dir -type l` lists all symlinks.
+
+exercises:
+  - id: symlink-current
+    title: A "current" link
+    instructions: |
+      **/opt/myapp/releases/** contains the versions `1.0`, `1.1` and `2.0`.  Create a
+      symbolic link **/opt/myapp/current** that points to **/opt/myapp/releases/2.0**.
+
+      (Student can write to /opt/myapp.)
+    setup: |
+      rm -rf /opt/myapp; mkdir -p /opt/myapp/releases/{1.0,1.1,2.0}
+      for v in 1.0 1.1 2.0; do echo "version $v" > /opt/myapp/releases/$v/VERSION; done
+      chown -R student: /opt/myapp
+    reference: ln -s /opt/myapp/releases/2.0 /opt/myapp/current
+    alternatives: ['cd /opt/myapp && ln -s releases/2.0 current']
+    checks:
+      - {type: symlink, path: /opt/myapp/current, resolves_to: /opt/myapp/releases/2.0, valid: true}
+    diagnostics:
+      - when: {type: dir_exists, path: /opt/myapp/current}
+        message: /opt/myapp/current is a real directory (perhaps a copy), not a symbolic link. Remove it and use ln -s.
+      - when: {type: symlink, path: /opt/myapp/releases/2.0/2.0}
+        message: >
+          A link was created inside releases/2.0 - the arguments were probably reversed
+          or the link already existed.  The syntax is ln -s TARGET LINK_NAME.
+    hints:
+      - The command that makes links is ln; one option makes them symbolic.
+      - ln -s TARGET LINK_NAME - target first.
+      - ln -s /opt/myapp/releases/2.0 /opt/myapp/current
+      - "ls -l /opt/myapp shows current -> /opt/myapp/releases/2.0; cat /opt/myapp/current/VERSION prints version 2.0."
+  - id: hardlink
+    title: Two names, one file
+    instructions: |
+      Create a **hard link** called **~/important-copy.txt** to **~/important.txt**.
+    setup: |
+      rm -f {home}/important-copy.txt; echo "do not lose me" > {home}/important.txt; chown student: {home}/important.txt
+    reference: ln ~/important.txt ~/important-copy.txt
+    wrong:
+      - {run: cp ~/important.txt ~/important-copy.txt, feedback: inode}
+      - {run: ln -s ~/important.txt ~/important-copy.txt, feedback: symbolic link}
+    checks:
+      - {type: hardlink, path: ~/important-copy.txt, other: ~/important.txt}
+    hints:
+      - A hard link is another directory entry for the same inode.
+      - ln without -s creates a hard link.
+      - ln ~/important.txt ~/important-copy.txt
+      - "ls -li ~/important*.txt shows both names with the same inode number and link count 2."
+  - id: broken
+    title: Repair a broken link
+    instructions: |
+      **~/config-link** is a symbolic link, but it is **broken**: its target was moved.
+      The configuration file now lives at **/etc/tutor/app.conf**.  Make
+      **~/config-link** point to it.
+    setup: |
+      mkdir -p /etc/tutor && echo "mode=production" > /etc/tutor/app.conf && chmod 644 /etc/tutor/app.conf
+      rm -f {home}/config-link; ln -s /etc/tutor-old/app.conf {home}/config-link; chown -h student: {home}/config-link
+    reference: ln -sf /etc/tutor/app.conf ~/config-link
+    alternatives: ['rm ~/config-link && ln -s /etc/tutor/app.conf ~/config-link']
+    checks:
+      - {type: symlink, path: ~/config-link, resolves_to: /etc/tutor/app.conf, valid: true}
+    hints:
+      - A symlink's target cannot be edited, but the link can be replaced.
+      - Remove the old link, or use ln's -f (force) option to overwrite it.
+      - ln -sf /etc/tutor/app.conf ~/config-link
+      - "ln -sf replaces the existing link in one step; cat ~/config-link now prints mode=production."
+
+quiz:
+  questions:
+    - id: q-hard-delete
+      type: mcq
+      topic: Hard links
+      prompt: file A has a hard link B.  You delete A.  What happens to B?
+      options: [B is broken, B still works - the data remains until the last name is removed, B is deleted too, B becomes empty]
+      answer: 1
+    - id: q-sym-delete
+      type: mcq
+      topic: Symbolic links
+      prompt: file A has a symbolic link S.  You delete A.  What happens to S?
+      options: [S keeps the data, S becomes a broken (dangling) link, S is deleted automatically, S points to /dev/null]
+      answer: 1
+    - id: q-dir
+      type: truefalse
+      topic: Hard links
+      prompt: You can create a hard link to a directory.
+      answer: false
+    - id: q-cross
+      type: multi
+      topic: Symbolic links
+      prompt: Which can a symbolic link do that a hard link cannot?
+      options: [Point to a directory, Point to a file on another filesystem, Keep the data alive after the target is deleted, Point to a path that does not exist yet]
+      answer: [0, 1, 3]
+    - id: q-ls
+      type: interpret
+      topic: Inodes and names
+      prompt: What does the number 3 in this listing mean?
+      output: "-rw-r--r-- 3 student student 512 data.bin"
+      options: [The file is 3 KB, There are 3 names (hard links) for this inode, 3 users have it open, It is version 3]
+      answer: 1
+    - id: q-order
+      type: short
+      topic: Symbolic links
+      prompt: Complete the command to create a symlink named latest pointing at v2 - `ln -s ...`
+      answer: ["ln -s v2 latest", "re:(ln\\s+-s\\s+)?v2\\s+latest"]
+    - id: q-practical
+      type: practical
+      title: Enable a site
+      topic: Links in practice
+      prompt: |
+        In this mock web-server layout, "enable" the site **blog** by creating
+        **/etc/websrv/sites-enabled/blog** as a symbolic link to
+        **/etc/websrv/sites-available/blog**.  Do not enable the other sites.
+      setup: |
+        rm -rf /etc/websrv; mkdir -p /etc/websrv/sites-available /etc/websrv/sites-enabled
+        for s in blog shop wiki; do echo "server $s" > /etc/websrv/sites-available/$s; done
+        chown -R student: /etc/websrv/sites-enabled
+      reference: ln -s /etc/websrv/sites-available/blog /etc/websrv/sites-enabled/blog
+      alternatives: ['cd /etc/websrv/sites-enabled && ln -s ../sites-available/blog .']
+      checks:
+        - {type: symlink, path: /etc/websrv/sites-enabled/blog, resolves_to: /etc/websrv/sites-available/blog, valid: true}
+      constraints:
+        - {type: command, run: "ls /etc/websrv/sites-enabled | wc -l", stdout_equals: "1", fail: "Other sites were enabled too."}
+      hints:
+        - Create one symbolic link in sites-enabled.
+        - ln -s TARGET LINK
+        - ln -s /etc/websrv/sites-available/blog /etc/websrv/sites-enabled/blog
+        - "The link in sites-enabled points at the real file in sites-available - deleting the link disables the site without losing its configuration."

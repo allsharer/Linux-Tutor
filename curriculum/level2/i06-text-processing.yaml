@@ -1,0 +1,198 @@
+id: i06-text-processing
+level: intermediate
+module: text
+title: Text processing with sed, awk, cut, sort and friends
+duration: 40
+objectives:
+  - Substitute and delete text with sed, including in-place editing
+  - Select and compute with fields using awk
+  - Combine sort, uniq, cut, paste, join and column
+  - Choose the right tool for a text-processing job
+
+sections:
+  - title: sed - the stream editor
+    content: |
+      `sed` reads text line by line, applies editing commands and prints the result.
+      The most-used command is **s**ubstitute:
+
+      ```
+      sed 's/old/new/' file          # first match on each line
+      sed 's/old/new/g' file         # all matches (global)
+      sed 's/old/new/gi' file        # ignoring case (GNU)
+      sed -n '5,10p' file            # print only lines 5-10
+      sed '/^#/d' file               # delete comment lines
+      sed -i 's/8080/9090/' app.conf # edit the file in place
+      sed -i.bak 's/a/b/' f          # ... keeping a backup as f.bak
+      ```
+
+      Any character can delimit the `s` command - useful with paths:
+      `sed 's|/var/www|/srv/www|g'`.
+
+      :::warning
+      `sed -i` changes the file immediately.  Test without -i first, or use `-i.bak`.
+      :::
+    examples:
+      - command: sed 's/bash/BASH/' /etc/shells
+        explanation: Substitution - the file itself is not changed.
+      - command: sed -n '1,3p' /etc/passwd
+        explanation: Like head -3.
+  - title: awk - fields and logic
+    content: |
+      `awk` splits each line into fields `$1, $2, ...` (`$0` is the whole line, `NF` the
+      number of fields, `NR` the line number) and runs `pattern { action }` rules:
+
+      ```
+      awk '{print $1}' access.log                      # first field
+      awk -F: '$3 >= 1000 {print $1}' /etc/passwd      # users with UID >= 1000
+      awk '{sum += $5} END {print sum}' data.txt       # total of column 5
+      awk 'NR % 2 == 0' file                           # every even line
+      awk -F, '{printf "%-10s %6.2f\n", $1, $3}' prices.csv
+      ```
+
+      awk is a small programming language: variables, arithmetic, if/else, loops and
+      associative arrays (`count[$1]++`).
+    examples:
+      - command: "awk -F: '{print $1, $7}' /etc/passwd | head"
+        explanation: User names and shells.
+      - command: "df -h | awk 'NR > 1 {print $6, $5}'"
+        explanation: Mount points with their use percentage.
+  - title: The supporting cast
+    content: |
+      | Tool | Job |
+      |---|---|
+      | `sort -t, -k3,3n` | sort CSV by the 3rd field numerically |
+      | `uniq -c` / `-d` / `-u` | count / only duplicated / only unique lines |
+      | `cut -d, -f1,3` | pick columns |
+      | `paste a b` | join files side by side |
+      | `join a b` | relational join on a common field (inputs sorted) |
+      | `column -t` | align columns into a table |
+      | `tr`, `rev`, `nl`, `tac` | translate, reverse lines, number lines, reverse file |
+
+      Choosing: **cut** for simple fixed delimiters, **awk** when you need conditions,
+      calculations or variable whitespace, **sed** for substitutions and line edits,
+      **grep** for selecting lines.
+
+exercises:
+  - id: sed-replace
+    title: Change a setting in place
+    instructions: |
+      In **~/server.conf** change **every** occurrence of `localhost` to `db.internal`.
+      Edit the file itself (no new file).
+    setup: |
+      printf 'db_host=localhost\ncache_host=localhost\n# localhost is used in development\nport=5432\n' > {home}/server.conf
+      chown student: {home}/server.conf; rm -f {home}/server.conf.bak
+    reference: sed -i 's/localhost/db.internal/g' ~/server.conf
+    alternatives: ['sed -i.bak "s/localhost/db.internal/g" ~/server.conf', "perl -pi -e 's/localhost/db.internal/g' ~/server.conf"]
+    wrong:
+      - {run: sed -i 's/localhost/db.internal/' ~/server.conf && sed -i '3s/db.internal/localhost/' ~/server.conf, expect: partial}
+    checks:
+      - {type: file_not_contains, path: ~/server.conf, text: localhost, fail: "localhost still occurs in the file. Did you forget the g flag, or -i?"}
+      - {type: file_contains, path: ~/server.conf, regex: ['^db_host=db\.internal$', '^cache_host=db\.internal$']}
+    constraints:
+      - {type: file_contains, path: ~/server.conf, regex: '^port=5432$', fail: The port line was damaged.}
+    hints:
+      - sed can substitute text, and can change the file in place.
+      - "s/old/new/g replaces every occurrence; -i edits the file."
+      - sed -i 's/localhost/db.internal/g' ~/server.conf
+      - "-i edits in place; the g flag makes the substitution global on each line (only matters if a line contains it twice, but it is a good habit)."
+  - id: awk-sum
+    title: Add up a column
+    instructions: |
+      **~/sales.csv** has the columns `region,product,amount`.  What is the **total of the
+      amount column** for the region **north**?
+    answer_prompt: "Total for north:"
+    setup: |
+      cat > {home}/sales.csv <<'EOF'
+      north,widgets,120
+      south,widgets,80
+      north,gadgets,45
+      east,widgets,60
+      north,gizmos,35
+      south,gadgets,15
+      EOF
+      chown student: {home}/sales.csv
+    reference: awk -F, '$1=="north" {sum+=$3} END {print sum}' ~/sales.csv
+    test_answer: "200"
+    checks:
+      - {type: answer, equals: "200"}
+    hints:
+      - Select the north lines and add up the third field.
+      - awk -F, sets comma as separator; a pattern selects lines; END runs after the last line.
+      - "awk -F, '$1==\"north\" {sum+=$3} END {print sum}' ~/sales.csv"
+      - "120 + 45 + 35 = 200."
+  - id: report
+    title: Build a report
+    instructions: |
+      Create **~/shells.txt** listing every **login shell** used in /etc/passwd together
+      with the **number of accounts** using it, **most used first**, in the format
+      produced by `uniq -c` (count, then shell).
+    setup: rm -f {home}/shells.txt
+    reference: "cut -d: -f7 /etc/passwd | sort | uniq -c | sort -rn > ~/shells.txt"
+    alternatives: ["awk -F: '{print $7}' /etc/passwd | sort | uniq -c | sort -rn > ~/shells.txt"]
+    checks:
+      - type: command
+        run: "diff <(awk '{print $1, $2}' /home/student/shells.txt) <(cut -d: -f7 /etc/passwd | sort | uniq -c | sort -rn | awk '{print $1, $2}')"
+        exit_code: 0
+        fail: ~/shells.txt does not match the expected counts (most used shell first).
+    hints:
+      - Extract field 7, group identical values and count them, then sort by count.
+      - cut -d: -f7 | sort | uniq -c | sort -rn
+      - "cut -d: -f7 /etc/passwd | sort | uniq -c | sort -rn > ~/shells.txt"
+      - "uniq -c needs sorted input; the final sort -rn orders by the count, largest first."
+
+quiz:
+  questions:
+    - id: q-sed-g
+      type: interpret
+      topic: sed - the stream editor
+      prompt: What is printed?
+      output: "$ echo 'a-a-a' | sed 's/a/b/'"
+      options: [b-b-b, b-a-a, a-a-b, a-a-a]
+      answer: 1
+    - id: q-sed-d
+      type: mcq
+      topic: sed - the stream editor
+      prompt: Which command prints a file without its empty lines?
+      options: ["sed '/^$/d' file", "sed 's/^$//' file", "sed -n '/^$/p' file", "sed 'd' file"]
+      answer: 0
+    - id: q-awk-nf
+      type: mcq
+      topic: awk - fields and logic
+      prompt: "In awk, what does $NF refer to?"
+      options: [The number of fields, The last field of the line, The line number, The whole line]
+      answer: 1
+    - id: q-tool
+      type: mcq
+      topic: The supporting cast
+      prompt: "You need lines from a log where the 9th field (status code) is greater than 499.  Best tool?"
+      options: [cut, sort, awk, tr]
+      answer: 2
+    - id: q-inplace
+      type: truefalse
+      topic: sed - the stream editor
+      prompt: Without -i, sed does not modify the input file.
+      answer: true
+    - id: q-awk-short
+      type: short
+      topic: awk - fields and logic
+      prompt: Write an awk command that prints the second field of every line of data.txt (whitespace separated).
+      answer: ["awk '{print $2}' data.txt", "re:awk\\s+'\\{\\s*print\\s+\\$2;?\\s*\\}'\\s+data\\.txt"]
+    - id: q-practical
+      type: practical
+      title: Clean a config listing
+      topic: sed - the stream editor
+      prompt: |
+        Create **~/effective.conf** containing **/etc/tutor-sample.conf** without comment
+        lines (lines starting with `#`) and without empty lines.
+      setup: |
+        printf '# Sample\n\nlisten=0.0.0.0\n# old value\n#port=80\nport=8080\n\nworkers=4\n' > /etc/tutor-sample.conf
+        rm -f {home}/effective.conf
+      reference: grep -v '^#' /etc/tutor-sample.conf | grep -v '^$' > ~/effective.conf
+      alternatives: ["sed -e '/^#/d' -e '/^$/d' /etc/tutor-sample.conf > ~/effective.conf", "grep -Ev '^(#|$)' /etc/tutor-sample.conf > ~/effective.conf"]
+      checks:
+        - {type: file_equals, path: ~/effective.conf, content: "listen=0.0.0.0\nport=8080\nworkers=4"}
+      hints:
+        - Remove two kinds of lines - comments and empty lines.
+        - "grep -v inverts a match; ^# matches lines starting with #, ^$ matches empty lines."
+        - grep -v '^#' /etc/tutor-sample.conf | grep -v '^$' > ~/effective.conf
+        - "Two inverted greps (or sed with two /d commands, or grep -Ev '^(#|$)') leave only the active settings."

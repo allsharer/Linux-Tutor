@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Linux Tutor
+GenericName=Linux Training
+Comment=Learn Linux hands-on with lessons, a real shell in a safe laboratory, and assessments
+Exec=linux-tutor
+Icon=linux-tutor
+Terminal=false
+Categories=Education;ComputerScience;System;
+Keywords=linux;bash;shell;terminal;tutorial;course;learn;training;
+StartupWMClass=linux-tutor

@@ -1,0 +1,172 @@
+id: b20-system-info
+level: beginner
+module: working
+title: Basic system information
+duration: 25
+objectives:
+  - Find out about the kernel, distribution and hardware
+  - Check memory and disk usage with free and df
+  - Check uptime and load
+  - Know where to look for system information in /proc
+
+sections:
+  - title: Who and what is this system?
+    content: |
+      When you log into an unfamiliar machine, start by orienting yourself:
+
+      | Command | Tells you |
+      |---|---|
+      | `hostname` | the computer's name |
+      | `uname -a` | kernel name, version and architecture |
+      | `cat /etc/os-release` | the distribution |
+      | `uptime` | how long it has been running, and the load |
+      | `whoami`, `id` | who you are |
+      | `date` | date, time and time zone |
+    examples:
+      - command: uname -a
+        explanation: Everything uname knows.
+      - command: uptime
+        explanation: Running time, number of users and load averages.
+  - title: CPU and memory
+    content: |
+      * `nproc` - number of CPU cores available
+      * `lscpu` - details of the processor
+      * `free -h` - memory and swap, in human units
+
+      ```
+      $ free -h
+                     total        used        free      shared  buff/cache   available
+      Mem:           3.8Gi       1.1Gi       200Mi        12Mi       2.5Gi       2.4Gi
+      Swap:          2.0Gi          0B       2.0Gi
+      ```
+
+      Look at **available**, not "free".  Linux uses spare memory as a disk cache
+      (buff/cache) and gives it back when programs need it - "free" memory is wasted
+      memory.
+  - title: Disks
+    content: |
+      `df -h` shows how full each mounted filesystem is:
+
+      ```
+      $ df -h /
+      Filesystem      Size  Used Avail Use% Mounted on
+      /dev/sda1        48G   22G   25G  47% /
+      ```
+
+      `du -sh DIR` shows how much space a directory uses.  When a disk is full, `df`
+      tells you *which* filesystem; `du` helps find *what* is using it.
+    examples:
+      - command: df -h
+        explanation: Usage of all filesystems.
+      - command: du -sh /usr/share/doc
+        explanation: Total size of one directory.
+  - title: Load average
+    content: |
+      `uptime` ends with three numbers, the **load average** over the last 1, 5 and
+      15 minutes - roughly the average number of processes running or waiting for the
+      CPU.
+
+      ```
+      10:42:01 up 3 days,  2:11,  1 user,  load average: 0.52, 0.40, 0.31
+      ```
+
+      Compare with the number of cores: a load of 4.0 on a 4-core machine means it is
+      fully busy; on a 1-core machine it means processes are queuing.
+    more: |
+      All of these tools read virtual files the kernel provides: /proc/meminfo (free),
+      /proc/loadavg (uptime), /proc/cpuinfo (lscpu), /proc/mounts (df).  You can read
+      them directly with cat.
+
+exercises:
+  - id: cores
+    title: How many CPUs?
+    instructions: How many CPU cores are available to your laboratory?  Type the number.
+    answer_prompt: "CPU cores:"
+    reference: nproc
+    checks:
+      - {type: answer, command: nproc}
+    hints:
+      - There is a command that prints just the number of processing units.
+      - nproc - or count the processor lines in /proc/cpuinfo.
+      - nproc
+      - "nproc prints the number of CPUs this system may use."
+  - id: sysreport
+    title: Write a system report
+    instructions: |
+      Create **~/sysreport.txt** containing, in any order:
+
+      * the output of `uname -r` (the kernel release)
+      * the output of `df -h /` (root filesystem usage)
+      * the output of `free -h` (memory usage)
+
+      Use redirection with `>` and `>>`, or put the commands in a group:
+      `{ cmd1; cmd2; } > file`.
+    setup: rm -f {home}/sysreport.txt
+    reference: uname -r > ~/sysreport.txt; df -h / >> ~/sysreport.txt; free -h >> ~/sysreport.txt
+    alternatives: ['{ uname -r; df -h /; free -h; } > ~/sysreport.txt']
+    checks:
+      - {type: command, run: "grep -qF \"$(uname -r)\" /home/student/sysreport.txt", exit_code: 0,
+         fail: "The kernel release (uname -r) is missing from the report."}
+      - {type: file_contains, path: ~/sysreport.txt, regex: 'Mounted on', fail: "The df -h / output is missing."}
+      - {type: file_contains, path: ~/sysreport.txt, regex: '^Mem:', fail: "The free -h output is missing."}
+    diagnostics:
+      - when: {type: file_contains, path: ~/sysreport.txt, regex: '^Mem:'}
+        message: Only part of the report is there - did a later > overwrite the earlier output? Use >> to append.
+    hints:
+      - Three commands' outputs must end up in the same file.
+      - "The first redirection may use >, the others must append with >>."
+      - uname -r > ~/sysreport.txt; df -h / >> ~/sysreport.txt; free -h >> ~/sysreport.txt
+      - "Each command adds its output; with { ...; } > file all three outputs are redirected together."
+
+quiz:
+  questions:
+    - id: q-free
+      type: mcq
+      topic: CPU and memory
+      prompt: Which column of free best tells you how much memory programs can still use?
+      options: [free, used, available, shared]
+      answer: 2
+    - id: q-df
+      type: mcq
+      topic: Disks
+      prompt: Which command shows how full each filesystem is?
+      options: [du -sh, df -h, free -h, lsblk -f]
+      answer: 1
+    - id: q-load
+      type: interpret
+      topic: Load average
+      prompt: This machine has 2 CPU cores.  What does the output suggest?
+      output: "14:02:10 up 40 days,  3 users,  load average: 7.85, 7.60, 6.90"
+      options:
+        - The machine is idle
+        - Processes have been queuing for the CPU for a while - it is overloaded
+        - The disk is full
+        - Seven users are logged in
+      answer: 1
+    - id: q-cache
+      type: truefalse
+      topic: CPU and memory
+      prompt: A large buff/cache value in free means the system is running out of memory.
+      answer: false
+      explanation: Cache is reclaimed automatically when programs need memory.
+    - id: q-kernel
+      type: short
+      topic: Who and what is this system?
+      prompt: Which command and option prints only the kernel release?
+      answer: ["uname -r", "re:uname\\s+(-r|--kernel-release)"]
+    - id: q-practical
+      type: practical
+      title: How big is it?
+      topic: Disks
+      prompt: |
+        Write the **total disk space used by /usr/share/doc**, as printed by `du -sh`
+        (for example `12M	/usr/share/doc`), into **~/docsize.txt**.
+      setup: rm -f {home}/docsize.txt
+      reference: du -sh /usr/share/doc > ~/docsize.txt
+      checks:
+        - {type: file_matches_command, path: ~/docsize.txt, command: "du -sh /usr/share/doc 2>/dev/null"}
+      hints:
+        - du summarises the disk usage of a directory.
+        - -s gives a single total, -h human units.
+        - du -sh /usr/share/doc > ~/docsize.txt
+        - "du -sh prints one line with the size and the path; > saves it."

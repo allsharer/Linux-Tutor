@@ -1,0 +1,160 @@
+id: a17-journalctl
+level: advanced
+module: performance
+title: System logs and journalctl
+duration: 40
+objectives:
+  - Query the journal precisely by unit, priority, time, boot and fields
+  - Produce machine-readable output (JSON) and use it in scripts
+  - Configure journal persistence and size limits
+  - Forward and centralise logs
+
+sections:
+  - title: Precise queries
+    content: |
+      ```
+      journalctl -u nginx -u php8.3-fpm --since "2024-03-01 10:00" --until "10:30"
+      journalctl -p warning..err -b          # a priority range, this boot
+      journalctl _PID=812                    # by field
+      journalctl _SYSTEMD_UNIT=ssh.service _HOSTNAME=web1
+      journalctl -k --since -1h              # kernel messages, last hour
+      journalctl --list-boots
+      journalctl -g "timeout|refused"        # grep (PCRE) the MESSAGE field
+      ```
+
+      `journalctl -o verbose -n1` shows every field of an entry; `journalctl -F _SYSTEMD_UNIT`
+      lists the values a field takes.
+  - title: Output formats
+    content: |
+      | Option | Format |
+      |---|---|
+      | `-o short-iso` | ISO 8601 timestamps |
+      | `-o cat` | message only |
+      | `-o json` / `json-pretty` | one JSON object per entry |
+      | `--output-fields=MESSAGE,_PID` | restrict JSON fields |
+
+      ```
+      journalctl -u ssh -o json --since today | jq -r 'select(.MESSAGE|test("Failed")) | .MESSAGE'
+      ```
+  - title: Storage and retention
+    content: |
+      Configuration: `/etc/systemd/journald.conf` and drop-ins in
+      `/etc/systemd/journald.conf.d/*.conf`:
+
+      ```ini
+      [Journal]
+      Storage=persistent        # keep logs in /var/log/journal across reboots
+      SystemMaxUse=500M         # cap the total size
+      MaxRetentionSec=30day     # drop older entries
+      ForwardToSyslog=yes
+      ```
+
+      Apply with `sudo systemctl restart systemd-journald`.  Maintenance:
+      `journalctl --disk-usage`, `sudo journalctl --vacuum-size=200M`,
+      `sudo journalctl --vacuum-time=2weeks`, `sudo journalctl --verify`.
+  - title: Centralising logs
+    content: |
+      On more than a handful of servers, ship logs to a central place: rsyslog forwarding
+      (`*.* @@logserver:514`), `systemd-journal-upload`/`-remote`, or agents for Loki,
+      Elasticsearch or a cloud service.  Central logs survive the crash of the machine that
+      wrote them - and an attacker cannot quietly erase them.
+
+exercises:
+  - id: retention
+    title: Configure journal retention
+    instructions: |
+      Create a journald drop-in **/etc/systemd/journald.conf.d/retention.conf** that limits
+      the journal to **100M** in total (`SystemMaxUse`) and keeps entries for at most
+      **14 days** (`MaxRetentionSec`).  Restart journald so the settings take effect.
+    setup: |
+      rm -f /etc/systemd/journald.conf.d/retention.conf; systemctl restart systemd-journald
+    reference: |
+      printf '[Journal]\nSystemMaxUse=100M\nMaxRetentionSec=14day\n' | sudo tee /etc/systemd/journald.conf.d/retention.conf
+      sudo systemctl restart systemd-journald
+    checks:
+      - {type: file_contains, path: /etc/systemd/journald.conf.d/retention.conf,
+         regex: ['^\[Journal\]', '^\s*SystemMaxUse\s*=\s*100M\s*$', '^\s*MaxRetentionSec\s*=\s*(14d(ay)?|2w(eek)?|1209600s?)\s*$']}
+      - type: command
+        run: "c=$(stat -c %Y /etc/systemd/journald.conf.d/retention.conf); s=$(date -d \"$(systemctl show -p ActiveEnterTimestamp --value systemd-journald)\" +%s); [ $s -ge $c ] && echo restarted"
+        stdout_equals: restarted
+        fail: "journald has not been restarted since the file was written."
+    hints:
+      - Drop-ins for journald need a [Journal] section.
+      - "SystemMaxUse=100M and MaxRetentionSec=14day; then restart systemd-journald."
+      - "printf '[Journal]\\nSystemMaxUse=100M\\nMaxRetentionSec=14day\\n' | sudo tee /etc/systemd/journald.conf.d/retention.conf"
+      - "sudo systemctl restart systemd-journald applies it; journalctl --disk-usage shows the current size."
+  - id: json-query
+    title: Failed logins as data
+    instructions: |
+      The journal contains authentication messages from the tag **tutor-auth**, some reporting
+      `Failed password for USER`.  Create **~/failed-users.txt** with the **distinct user
+      names** that had failed logins, sorted, one per line.
+    setup: |
+      for u in alice bob alice mallory root bob; do logger -t tutor-auth "Failed password for $u from 203.0.113.$((RANDOM%200)) port 22"; done
+      logger -t tutor-auth "Accepted publickey for carol from 198.51.100.7"; sleep 0.5; rm -f {home}/failed-users.txt
+    reference: journalctl -t tutor-auth -o cat | grep -o 'Failed password for [^ ]*' | awk '{print $4}' | sort -u > ~/failed-users.txt
+    alternatives: ["sudo apt-get install -y -q jq >/dev/null 2>&1; journalctl -t tutor-auth -o json | jq -r .MESSAGE | sed -nE 's/.*Failed password for ([^ ]+).*/\\1/p' | sort -u > ~/failed-users.txt"]
+    checks:
+      - {type: file_equals, path: ~/failed-users.txt, content: "alice\nbob\nmallory\nroot"}
+    hints:
+      - Select the tag, keep only the messages, extract the user name, de-duplicate.
+      - "journalctl -t tutor-auth -o cat prints only messages; grep -o or sed -E extracts the name."
+      - "journalctl -t tutor-auth -o cat | grep -o 'Failed password for [^ ]*' | awk '{print $4}' | sort -u > ~/failed-users.txt"
+      - "carol logged in successfully, so she must not appear."
+
+quiz:
+  questions:
+    - id: q-range
+      type: mcq
+      topic: Precise queries
+      prompt: Which option restricts output to priorities warning through err?
+      options: [-p warning..err, -p 4-3 only, --level warning+, -g warning]
+      answer: 0
+    - id: q-field
+      type: short
+      topic: Precise queries
+      prompt: Which journalctl option lists all values a field (e.g. _SYSTEMD_UNIT) takes?
+      answer: ["-F", "--field"]
+    - id: q-persist
+      type: truefalse
+      topic: Storage and retention
+      prompt: With Storage=volatile the journal is lost at reboot.
+      answer: true
+    - id: q-vacuum
+      type: mcq
+      topic: Storage and retention
+      prompt: The journal uses 4 GB.  Which command shrinks it to 500 MB?
+      options: ["journalctl --vacuum-size=500M", "rm -rf /var/log/journal", "journalctl --rotate=500M", "logrotate journal"]
+      answer: 0
+    - id: q-central
+      type: mcq
+      topic: Centralising logs
+      prompt: Why centralise logs?
+      options: [They compress better, They survive the failure or compromise of the machine that produced them and can be searched together, It is required by systemd, To save CPU]
+      answer: 1
+    - id: q-json
+      type: interpret
+      topic: Output formats
+      prompt: Which output option suits a script that will parse journal entries with jq?
+      output: "journalctl -u myapp ??? | jq ..."
+      options: ["-o cat", "-o json", "-o short", "-q"]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Errors of one unit in a time window
+      topic: Precise queries
+      prompt: |
+        Save the messages (text only, `-o cat`) of priority **err or worse** written by the tag
+        **tutor-app** during the **last 10 minutes** into **~/app-errors.txt**.
+      setup: |
+        logger -t tutor-app -p user.info "app started"; logger -t tutor-app -p user.err "db connection lost"
+        logger -t tutor-app -p user.crit "disk failure on /data"; sleep 0.5; rm -f {home}/app-errors.txt
+      reference: journalctl -t tutor-app -p err --since "10 min ago" -o cat > ~/app-errors.txt
+      checks:
+        - {type: file_contains, path: ~/app-errors.txt, text: [db connection lost, disk failure on /data]}
+        - {type: file_not_contains, path: ~/app-errors.txt, text: app started, fail: "The info message is included - filter by priority."}
+      hints:
+        - Combine tag, priority, time and output format.
+        - "-t TAG -p err --since \"10 min ago\" -o cat"
+        - journalctl -t tutor-app -p err --since "10 min ago" -o cat > ~/app-errors.txt
+        - "-p err includes crit, alert and emerg."

@@ -1,0 +1,185 @@
+id: a04-advanced-text
+level: advanced
+module: scripting
+title: Advanced text processing
+duration: 40
+objectives:
+  - Write multi-rule awk programs with arrays and formatted output
+  - Use sed addresses, ranges and multiple commands
+  - Process structured data (CSV, key=value, JSON with jq)
+  - Combine tools into robust reporting pipelines
+
+sections:
+  - title: awk as a language
+    content: |
+      ```awk
+      # report.awk - usage: awk -f report.awk access.log
+      BEGIN { FS = " " }
+      $9 >= 500 { errors[$1]++ }                 # count 5xx per client IP
+      { bytes += $10 }
+      END {
+          printf "Total bytes: %d\n", bytes
+          for (ip in errors) printf "%-15s %5d\n", ip, errors[ip]
+      }
+      ```
+
+      * `BEGIN` / `END` blocks run before / after the input;
+      * arrays are associative; `for (k in a)` iterates (unordered - pipe into sort);
+      * `printf` gives aligned columns; `-v name=value` passes shell values in.
+  - title: sed beyond s///
+    content: |
+      ```
+      sed -n '/^\[database\]/,/^\[/p' app.ini      # print a section (range of lines)
+      sed '/^#/d; /^$/d' file                       # several commands
+      sed '3i\inserted line' file                   # insert before line 3
+      sed '/^port=/c\port=9090' file                # change whole matching line
+      sed -E '/^\[web\]/,/^\[/ s/^(timeout=).*/\160/' app.ini  # replace only inside [web]
+      ```
+
+      An **address** before a command limits it to lines: a number, `$` (last line), a
+      `/regex/`, or a range `A,B`.
+  - title: Structured data
+    content: |
+      * **CSV**: simple files work with `awk -F,` or `cut -d,`; quoted fields containing
+        commas need a real parser (e.g. `python3 -m csv`, or `mlr` if installed).
+      * **key=value** configs: `grep -E '^[^#]*=' file`, `source` them only if trusted.
+      * **JSON**: `jq` (lab repository) queries it:
+
+      ```
+      jq '.users[] | select(.active) | .name' users.json
+      jq -r '.servers[] | "\(.name)\t\(.ip)"' inventory.json
+      ```
+
+exercises:
+  - id: awk-report
+    title: Per-user disk report
+    instructions: |
+      **~/usage.txt** lists `user directory size_in_MB`, one per line.  Create
+      **~/report.txt** with the **total MB per user**, formatted as `USER TOTAL`, sorted by
+      total, **largest first**.
+    setup: |
+      cat > {home}/usage.txt <<'EOF'
+      alice /srv/a 120
+      bob /srv/b 40
+      alice /home/alice 300
+      carol /srv/c 75
+      bob /home/bob 500
+      carol /home/carol 10
+      EOF
+      chown student: {home}/usage.txt; rm -f {home}/report.txt
+    reference: awk '{t[$1] += $3} END {for (u in t) print u, t[u]}' ~/usage.txt | sort -k2,2nr > ~/report.txt
+    checks:
+      - {type: file_equals, path: ~/report.txt, content: "bob 540\nalice 420\ncarol 85"}
+    hints:
+      - Sum the third field into an array indexed by the first field.
+      - "t[$1] += $3 in the main rule; print the array in END; then sort numerically on field 2, reversed."
+      - "awk '{t[$1] += $3} END {for (u in t) print u, t[u]}' ~/usage.txt | sort -k2,2nr > ~/report.txt"
+      - "awk's for-in order is arbitrary, so the final sort is essential."
+  - id: ini-section
+    title: Edit one section only
+    instructions: |
+      In **~/app.ini**, change `timeout=30` to `timeout=60` **only in the [web] section**.
+      The `[api]` section also has `timeout=30` - it must stay unchanged.
+    setup: |
+      printf '[web]\nport=80\ntimeout=30\n\n[api]\nport=8080\ntimeout=30\n' > {home}/app.ini; chown student: {home}/app.ini
+    reference: sed -E -i '/^\[web\]/,/^\[/ s/^timeout=.*/timeout=60/' ~/app.ini
+    alternatives: ["awk '/^\\[/{s=$0} s==\"[web]\" && /^timeout=/{$0=\"timeout=60\"} 1' ~/app.ini > /tmp/a && cat /tmp/a > ~/app.ini"]
+    wrong:
+      - {run: sed -i 's/timeout=30/timeout=60/' ~/app.ini, expect: correct_side_effects}
+    checks:
+      - {type: command, run: "sed -n '/^\\[web\\]/,/^\\[/p' /home/student/app.ini", stdout_contains: timeout=60}
+    constraints:
+      - {type: command, run: "sed -n '/^\\[api\\]/,$p' /home/student/app.ini", stdout_contains: timeout=30,
+         fail: "The [api] section was changed too."}
+    hints:
+      - Restrict the substitution to a range of lines.
+      - "A sed address range /^\\[web\\]/,/^\\[/ covers the [web] section."
+      - "sed -E -i '/^\\[web\\]/,/^\\[/ s/^timeout=.*/timeout=60/' ~/app.ini"
+      - "The range starts at [web] and ends at the next line beginning with [ - i.e. [api]."
+  - id: jq
+    title: Query JSON
+    instructions: |
+      **~/inventory.json** describes servers.  Using **jq** (install it from the lab
+      repository if needed), find the **names of all servers whose role is "db"**, and
+      write them to **~/db-servers.txt**, one per line, without quotes.
+    setup: |
+      cat > {home}/inventory.json <<'EOF'
+      {"servers": [
+        {"name": "web1", "role": "web", "ip": "10.0.0.11"},
+        {"name": "db1",  "role": "db",  "ip": "10.0.0.21"},
+        {"name": "web2", "role": "web", "ip": "10.0.0.12"},
+        {"name": "db2",  "role": "db",  "ip": "10.0.0.22"}
+      ]}
+      EOF
+      chown student: {home}/inventory.json; rm -f {home}/db-servers.txt
+    reference: |
+      sudo apt-get install -y -q jq >/dev/null
+      jq -r '.servers[] | select(.role == "db") | .name' ~/inventory.json > ~/db-servers.txt
+    alternatives: ["grep -o '\"name\": \"db[0-9]*\"' ~/inventory.json | cut -d'\"' -f4 > ~/db-servers.txt"]
+    checks:
+      - {type: file_equals, path: ~/db-servers.txt, content: "db1\ndb2"}
+    hints:
+      - "jq filters JSON; select() keeps matching elements; -r prints raw strings."
+      - ".servers[] iterates the array; select(.role == \"db\") filters; .name extracts."
+      - "jq -r '.servers[] | select(.role == \"db\") | .name' ~/inventory.json > ~/db-servers.txt"
+      - "If jq is missing: sudo apt install jq (offline repository)."
+
+quiz:
+  questions:
+    - id: q-end
+      type: mcq
+      topic: awk as a language
+      prompt: When does an awk END block run?
+      options: [Before reading input, After every line, After all input has been read, Only on errors]
+      answer: 2
+    - id: q-v
+      type: short
+      topic: awk as a language
+      prompt: Which awk option passes a shell value in as an awk variable?
+      answer: ["-v"]
+    - id: q-range
+      type: interpret
+      topic: sed beyond s///
+      prompt: What does this print?
+      output: "$ printf 'a\\nSTART\\nb\\nEND\\nc\\n' | sed -n '/START/,/END/p'"
+      options: ["b", "START b END (each on its own line)", "a c", "everything"]
+      answer: 1
+    - id: q-forin
+      type: truefalse
+      topic: awk as a language
+      prompt: "awk's for (k in array) loop returns keys in sorted order."
+      answer: false
+    - id: q-jq
+      type: mcq
+      topic: Structured data
+      prompt: Which jq option prints strings without surrounding quotes?
+      options: [-c, -r, -s, -n]
+      answer: 1
+    - id: q-csv
+      type: troubleshoot
+      topic: Structured data
+      prompt: "`cut -d, -f2 customers.csv` gives wrong results for some rows.  Likely reason?"
+      options: [cut cannot read CSV, Some fields contain quoted commas, The file is too large, cut needs -s]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Status code summary
+      topic: awk as a language
+      prompt: |
+        **/var/log/web-access.log** is in common log format (field 9 = HTTP status).
+        Create **~/status.txt** with one line per status code: `CODE COUNT`, sorted by code.
+      setup: |
+        : > /var/log/web-access.log
+        for s in 200 200 404 200 500 301 200 404 500 500 200; do
+          echo "10.0.0.$((RANDOM%9)) - - [01/Mar/2024:10:00:00 +0000] \"GET / HTTP/1.1\" $s 512" >> /var/log/web-access.log
+        done
+        chmod 644 /var/log/web-access.log; rm -f {home}/status.txt
+      reference: awk '{c[$9]++} END {for (s in c) print s, c[s]}' /var/log/web-access.log | sort -n > ~/status.txt
+      alternatives: ["awk '{print $9}' /var/log/web-access.log | sort | uniq -c | awk '{print $2, $1}' > ~/status.txt"]
+      checks:
+        - {type: file_equals, path: ~/status.txt, content: "200 5\n301 1\n404 2\n500 3"}
+      hints:
+        - Count field 9 values in an array.
+        - "c[$9]++ then print in END, sort -n."
+        - "awk '{c[$9]++} END {for (s in c) print s, c[s]}' /var/log/web-access.log | sort -n > ~/status.txt"
+        - "Alternatively: awk '{print $9}' | sort | uniq -c, then swap the columns."

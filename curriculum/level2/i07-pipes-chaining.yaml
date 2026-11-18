@@ -1,0 +1,183 @@
+id: i07-pipes-chaining
+level: intermediate
+module: text
+title: Pipes and command chaining
+duration: 30
+objectives:
+  - Chain commands with ;, && and ||
+  - Use exit statuses to control what runs next
+  - Capture output with command substitution
+  - Use tee, xargs and process substitution in pipelines
+
+sections:
+  - title: Sequences and conditions
+    content: |
+      | Operator | Runs the next command... |
+      |---|---|
+      | `a ; b` | always, after a finishes |
+      | `a && b` | only if a **succeeded** (exit status 0) |
+      | `a || b` | only if a **failed** |
+
+      ```
+      mkdir /backup && cp -r ~/docs /backup/      # copy only if mkdir worked
+      ping -c1 server || echo "server is down"     # report failure
+      cd /var/www && git pull && systemctl reload nginx
+      ```
+
+      `&&` chains are the command-line version of "stop at the first error".
+  - title: Pipeline exit status
+    content: |
+      The exit status of a pipeline is that of the **last** command:
+
+      ```
+      $ false | true; echo $?
+      0
+      ```
+
+      In scripts that is often not what you want.  `set -o pipefail` makes a pipeline
+      fail if *any* command in it fails; `${PIPESTATUS[@]}` holds every status.
+  - title: Command substitution
+    content: |
+      `$(command)` is replaced by the command's output:
+
+      ```
+      echo "Today is $(date +%A)"
+      cp app.log "app-$(date +%F).log"            # app-2024-03-01.log
+      kill $(pgrep -f old-worker)
+      lines=$(wc -l < data.csv)
+      ```
+
+      (The old form with backticks `` `date` `` still works but nests badly.)
+    examples:
+      - command: echo "You are $(whoami) on $(hostname)"
+        explanation: Two substitutions in one string.
+      - command: touch "report-$(date +%F).txt" && ls report-*
+        explanation: A dated file name.
+  - title: tee, xargs and process substitution
+    content: |
+      **tee** writes its input to a file *and* passes it on:
+      `make 2>&1 | tee build.log | grep -i error`.  `sudo tee` is the standard way to
+      write to a root-owned file: `echo "nameserver 1.1.1.1" | sudo tee -a /etc/resolv.conf`.
+
+      **xargs** turns input lines into *arguments*:
+      `cat hosts.txt | xargs -n1 ping -c1`, `find . -name '*.bak' -print0 | xargs -0 rm`.
+
+      **Process substitution** `<(cmd)` presents a command's output as a file name:
+      `diff <(sort a.txt) <(sort b.txt)`.
+
+      :::note
+      Why `sudo tee` and not `sudo echo ... > /etc/file`?  The redirection is done by
+      *your* shell, which is not root - sudo only applies to echo.
+      :::
+
+exercises:
+  - id: conditional
+    title: Only if it worked
+    instructions: |
+      Write **one command line** that creates the directory **~/deploy** and, **only if
+      that succeeds**, creates the file **~/deploy/READY**.  Then run it.
+
+      Try running the same line a second time and notice what happens: mkdir fails
+      because the directory exists, and the second command is skipped.
+    setup: rm -rf {home}/deploy
+    reference: mkdir ~/deploy && touch ~/deploy/READY
+    checks:
+      - {type: file_exists, path: ~/deploy/READY}
+    hints:
+      - The second command should depend on the success of the first.
+      - "&& runs the next command only if the previous one succeeded."
+      - mkdir ~/deploy && touch ~/deploy/READY
+      - "If mkdir failed (for example because ~/deploy already exists), touch would not run."
+  - id: tee-root
+    title: Write a root-owned file
+    instructions: |
+      Append the line **`10.0.0.50  fileserver`** to **/etc/hosts** (a root-owned file).
+      Note that `sudo echo ... >> /etc/hosts` does not work - find out why, and use a
+      method that does.
+    setup: grep -v fileserver /etc/hosts > /tmp/hosts.$$; cat /tmp/hosts.$$ > /etc/hosts; rm -f /tmp/hosts.$$
+    reference: echo "10.0.0.50  fileserver" | sudo tee -a /etc/hosts
+    alternatives: ["sudo sh -c 'echo \"10.0.0.50  fileserver\" >> /etc/hosts'"]
+    checks:
+      - {type: file_contains, path: /etc/hosts, regex: '^10\.0\.0\.50\s+fileserver\s*$'}
+      - {type: command, run: "getent hosts fileserver", stdout_contains: "10.0.0.50"}
+    constraints:
+      - {type: file_contains, path: /etc/hosts, regex: '127\.0\.0\.1\s+localhost', fail: "The existing localhost entry was lost - did you use tee without -a?"}
+    hints:
+      - The >> redirection is performed by your own shell, which is not root.
+      - tee writes its input to a file; run tee itself with sudo, and use -a to append.
+      - echo "10.0.0.50  fileserver" | sudo tee -a /etc/hosts
+      - "sudo tee -a runs tee as root, so tee can open /etc/hosts for appending. Without -a, tee would overwrite the whole file!"
+  - id: dated-backup
+    title: A dated backup
+    instructions: |
+      Copy **~/notes.txt** to a file named **~/notes-YYYY-MM-DD.txt** where YYYY-MM-DD is
+      **today's date** in the lab - without typing the date yourself.
+    setup: |
+      echo "important notes" > {home}/notes.txt; chown student: {home}/notes.txt; rm -f {home}/notes-*.txt
+    reference: cp ~/notes.txt ~/notes-$(date +%F).txt
+    alternatives: ['cp ~/notes.txt ~/notes-$(date +%Y-%m-%d).txt']
+    checks:
+      - {type: command, run: "test -f /home/student/notes-$(date +%F).txt", exit_code: 0,
+         fail: "There is no ~/notes-<today>.txt. date +%F prints today's date in YYYY-MM-DD form."}
+    hints:
+      - Let the shell insert the output of the date command into the file name.
+      - "$(date +%F) is replaced by e.g. 2024-03-01."
+      - cp ~/notes.txt ~/notes-$(date +%F).txt
+      - "Command substitution builds the name automatically - useful in backup scripts."
+
+quiz:
+  questions:
+    - id: q-and
+      type: mcq
+      topic: Sequences and conditions
+      prompt: In `make && make install`, when does make install run?
+      options: [Always, Only if make succeeded, Only if make failed, In parallel with make]
+      answer: 1
+    - id: q-or
+      type: interpret
+      topic: Sequences and conditions
+      prompt: What is printed if /nonexistent does not exist?
+      output: "$ ls /nonexistent 2>/dev/null && echo yes || echo no"
+      options: [yes, no, yes and no, nothing]
+      answer: 1
+    - id: q-pipefail
+      type: truefalse
+      topic: Pipeline exit status
+      prompt: By default, the exit status of a pipeline is the status of its last command.
+      answer: true
+    - id: q-sudo-redirect
+      type: troubleshoot
+      topic: tee, xargs and process substitution
+      prompt: "`sudo echo 'x' > /etc/motd` gives 'Permission denied'.  Why?"
+      options:
+        - echo cannot be run with sudo
+        - The redirection is performed by your unprivileged shell, not by sudo
+        - /etc/motd is immutable
+        - sudo needs -i
+      answer: 1
+    - id: q-subst
+      type: short
+      topic: Command substitution
+      prompt: What syntax inserts the output of the command hostname into a command line?
+      answer: ["$(hostname)", "`hostname`"]
+    - id: q-practical
+      type: practical
+      title: Compare two lists
+      topic: tee, xargs and process substitution
+      prompt: |
+        **~/a.txt** and **~/b.txt** contain names in random order.  Create **~/only-a.txt**
+        listing (sorted) the names that are in **a.txt but not in b.txt**.
+
+        Hint: `comm -23` compares two **sorted** inputs; process substitution can sort on the fly.
+      setup: |
+        printf 'zoe\nadam\nmia\nleo\nben\n' > {home}/a.txt; printf 'leo\nzoe\ntom\n' > {home}/b.txt
+        chown student: {home}/a.txt {home}/b.txt; rm -f {home}/only-a.txt
+      reference: comm -23 <(sort ~/a.txt) <(sort ~/b.txt) > ~/only-a.txt
+      alternatives: ['grep -vxF -f ~/b.txt ~/a.txt | sort > ~/only-a.txt']
+      checks:
+        - {type: file_equals, path: ~/only-a.txt, content: "adam\nben\nmia"}
+      hints:
+        - comm compares two sorted files line by line.
+        - "comm -23 shows lines only in the first file; <(sort file) provides a sorted version."
+        - comm -23 <(sort ~/a.txt) <(sort ~/b.txt) > ~/only-a.txt
+        - "Process substitution gives comm two sorted inputs without temporary files. grep -vxF -f b.txt a.txt also works."

@@ -1,0 +1,181 @@
+id: a09-capabilities
+level: advanced
+module: system
+title: Linux capabilities
+duration: 35
+objectives:
+  - Explain how capabilities split root's power into pieces
+  - Inspect process and file capabilities
+  - Grant a single capability to a program instead of setuid root
+  - Restrict capabilities of services with systemd
+
+sections:
+  - title: Root, divided
+    content: |
+      Traditionally a process is either root (all-powerful) or not.  **Capabilities** split
+      root's privileges into about 40 independent units:
+
+      | Capability | Allows |
+      |---|---|
+      | `CAP_NET_BIND_SERVICE` | bind to ports below 1024 |
+      | `CAP_NET_RAW` | raw sockets (ping) |
+      | `CAP_NET_ADMIN` | configure interfaces, firewall, routes |
+      | `CAP_CHOWN` | change file ownership arbitrarily |
+      | `CAP_DAC_OVERRIDE` | bypass file permission checks |
+      | `CAP_SYS_ADMIN` | a huge grab-bag (mount, ...) - "the new root" |
+      | `CAP_SYS_TIME` | set the system clock |
+
+      A web server needs to listen on port 80 but nothing else that root can do - give it
+      only CAP_NET_BIND_SERVICE.  This is the **principle of least privilege**.
+  - title: Inspecting capabilities
+    content: |
+      ```
+      getcap /usr/bin/ping                       # file capabilities
+      getcap -r /usr/bin 2>/dev/null             # all files with capabilities
+      grep Cap /proc/$$/status                   # a process's capability sets (hex)
+      capsh --decode=0000003fffffffff            # translate a hex mask
+      getpcaps PID                               # readable form
+      ```
+
+      Processes have several sets: **permitted**, **effective** (in use now), **inheritable**,
+      **bounding** (upper limit) and **ambient**.
+  - title: File capabilities
+    content: |
+      Instead of making a program setuid root:
+
+      ```
+      sudo setcap cap_net_bind_service=+ep /usr/local/bin/myserver
+      getcap /usr/local/bin/myserver
+      /usr/local/bin/myserver cap_net_bind_service=ep
+      sudo setcap -r /usr/local/bin/myserver     # remove
+      ```
+
+      `e` = effective, `p` = permitted.  The capability is stored in an extended attribute;
+      copying the file without `--preserve=xattr` drops it, and any modification of the file
+      clears it.
+
+      :::warning
+      Never give broad capabilities (cap_sys_admin, cap_dac_override) to interpreters such
+      as python or bash - any script could then use them.
+      :::
+  - title: Capabilities and services
+    content: |
+      systemd can limit services precisely:
+
+      ```ini
+      [Service]
+      User=web
+      AmbientCapabilities=CAP_NET_BIND_SERVICE
+      CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+      NoNewPrivileges=yes
+      ```
+
+      Containers use the same mechanism: your laboratory container runs with a reduced
+      capability set too.
+
+exercises:
+  - id: bind80
+    title: Port 80 without root
+    instructions: |
+      **/usr/local/bin/tinyweb** is a copy of a small web server program.  Allow it - and only
+      it - to bind to privileged ports, so that **student** can run
+      `tinyweb 80` **without sudo**.  Then start it as student in the background so that
+      **port 80** is listening.  Do not make it setuid.
+    setup: |
+      pkill -x tinyweb 2>/dev/null; sleep 0.3
+      cp "$(readlink -f /usr/bin/python3)" /usr/local/lib/tinyweb-python
+      printf '#!/bin/sh\nexec /usr/local/lib/tinyweb-python -m http.server "${1:-8000}" --directory /var/tmp\n' > /usr/local/bin/tinyweb
+      chmod 755 /usr/local/bin/tinyweb; setcap -r /usr/local/lib/tinyweb-python 2>/dev/null; true
+    cleanup: pkill -f '[t]inyweb-python' || true
+    reference: |
+      sudo setcap cap_net_bind_service=+ep /usr/local/lib/tinyweb-python
+      tinyweb 80 &
+    solution: |
+      sudo setcap cap_net_bind_service=+ep /usr/local/lib/tinyweb-python
+      nohup tinyweb 80 >/dev/null 2>&1 & sleep 1
+    checks:
+      - {type: capability, path: /usr/local/lib/tinyweb-python, contains: cap_net_bind_service}
+      - {type: port_listening, port: 80}
+      - {type: process_running, pattern: tinyweb-python -m http.server 80, user: student,
+         fail: "Port 80 is not served by a tinyweb process running as student."}
+    constraints:
+      - {type: mode, path: /usr/local/lib/tinyweb-python, lacks: u+s, fail: "The program was made setuid - that grants full root, not just port binding."}
+    hints:
+      - "The wrapper script execs a binary - the capability must be on that binary (a script cannot carry capabilities)."
+      - "setcap cap_net_bind_service=+ep FILE grants only the right to bind low ports."
+      - sudo setcap cap_net_bind_service=+ep /usr/local/lib/tinyweb-python
+      - "Then run tinyweb 80 & as student; ss -tlnp shows it listening on :80."
+  - id: find-caps
+    title: Audit capabilities
+    instructions: |
+      Create **~/caps.txt** listing every file under **/usr** that has **file capabilities**,
+      in the format printed by `getcap` (one per line).
+    setup: |
+      rm -f {home}/caps.txt; cp /usr/bin/true /usr/local/bin/tutor-captest; setcap cap_sys_time+ep /usr/local/bin/tutor-captest
+    reference: getcap -r /usr 2>/dev/null > ~/caps.txt
+    checks:
+      - {type: file_contains, path: ~/caps.txt, regex: ['/usr/local/bin/tutor-captest\s+cap_sys_time=ep']}
+      - {type: file_matches_command, path: ~/caps.txt, command: "getcap -r /usr 2>/dev/null"}
+    hints:
+      - getcap can search recursively.
+      - getcap -r DIR
+      - getcap -r /usr 2>/dev/null > ~/caps.txt
+      - "The audit reveals /usr/local/bin/tutor-captest with cap_sys_time - a capability that lets a program change the clock."
+
+quiz:
+  questions:
+    - id: q-least
+      type: mcq
+      topic: Root, divided
+      prompt: Which capability lets a program listen on port 443 without being root?
+      options: [CAP_NET_ADMIN, CAP_NET_BIND_SERVICE, CAP_SYS_ADMIN, CAP_NET_RAW]
+      answer: 1
+    - id: q-sysadmin
+      type: truefalse
+      topic: Root, divided
+      prompt: CAP_SYS_ADMIN is a narrow capability that is safe to grant widely.
+      answer: false
+    - id: q-getcap
+      type: short
+      topic: Inspecting capabilities
+      prompt: Which command shows the file capabilities of /usr/bin/ping?
+      answer: ["getcap /usr/bin/ping"]
+    - id: q-script
+      type: troubleshoot
+      topic: File capabilities
+      prompt: You ran setcap on a bash script but it still cannot bind port 80.  Why?
+      options:
+        - setcap needs a reboot
+        - The kernel ignores file capabilities on scripts; the interpreter executes, not the script
+        - Port 80 is reserved for root forever
+        - getcap is broken
+      answer: 1
+    - id: q-modify
+      type: truefalse
+      topic: File capabilities
+      prompt: Overwriting a binary with a new version removes its file capabilities.
+      answer: true
+    - id: q-systemd
+      type: mcq
+      topic: Capabilities and services
+      prompt: Which unit setting gives a non-root service a capability at start-up?
+      options: [User=, AmbientCapabilities=, NoNewPrivileges=, CapabilityDrop=]
+      answer: 1
+    - id: q-practical
+      type: practical
+      title: Remove a dangerous capability
+      topic: File capabilities
+      prompt: |
+        **/usr/local/bin/clocktool** has the capability `cap_sys_time`, which nobody needs.
+        Remove **all** capabilities from it.
+      setup: |
+        cp /usr/bin/true /usr/local/bin/clocktool; setcap cap_sys_time+ep /usr/local/bin/clocktool
+      reference: sudo setcap -r /usr/local/bin/clocktool
+      checks:
+        - {type: command, run: "getcap /usr/local/bin/clocktool", stdout_equals: ""}
+        - {type: file_exists, path: /usr/local/bin/clocktool, fail: "The program itself was deleted."}
+      hints:
+        - setcap can remove capabilities.
+        - "setcap -r FILE"
+        - sudo setcap -r /usr/local/bin/clocktool
+        - "getcap prints nothing afterwards."

@@ -1,0 +1,186 @@
+id: i03-chmod-chown-chgrp
+level: intermediate
+module: files
+title: chmod, chown and chgrp
+duration: 30
+objectives:
+  - Change modes recursively and selectively with chmod
+  - Change owner and group with chown and chgrp
+  - Build a shared group directory with setgid
+  - Avoid common recursive-permission mistakes
+
+sections:
+  - title: chmod in depth
+    content: |
+      You know symbolic (`u+x`) and octal (`755`) modes.  A few more tools:
+
+      * `chmod -R` applies a mode **recursively** to a directory tree.
+      * Capital **X** adds execute only to directories (and files already executable
+        by someone):
+
+        ```
+        chmod -R u=rwX,go=rX ~/website     # dirs 755, files 644
+        ```
+
+      * `chmod --reference=a.txt b.txt` copies the mode of a.txt.
+      * Special bits in octal: `chmod 2775 shared/` (setgid), `chmod 1777 drop/` (sticky).
+
+      :::warning
+      `chmod -R 755 dir` makes *every file* executable - usually wrong.  Use `X`, or
+      `find` to treat files and directories differently:
+      `find dir -type d -exec chmod 755 {} +` and `find dir -type f -exec chmod 644 {} +`.
+      :::
+  - title: chown and chgrp
+    content: |
+      Only **root** may give a file away to another user (otherwise users could dodge
+      disk quotas or plant files in other names).
+
+      ```
+      sudo chown alice report.txt            # new owner
+      sudo chown alice:finance report.txt    # owner and group
+      sudo chown :finance report.txt         # group only
+      sudo chown -R www-data: /var/www/site  # recursive; "user:" = user's primary group
+      chgrp finance report.txt               # group only
+      ```
+
+      An ordinary user may `chgrp` their own file to any group **they belong to**.
+  - title: A shared team directory
+    content: |
+      A common administration task: a directory where all members of a team can
+      create and edit each other's files.
+
+      ```
+      sudo groupadd devteam
+      sudo usermod -aG devteam alice
+      sudo mkdir /srv/devteam
+      sudo chown root:devteam /srv/devteam
+      sudo chmod 2770 /srv/devteam
+      ```
+
+      * group **rwx** - members can create files;
+      * **setgid (2)** - new files belong to *devteam*, not the creator's private group;
+      * others **---** - outsiders see nothing.
+
+      With umask 002 new files are group-writable, so teammates can edit them.
+    more: |
+      Without setgid, Alice's new file would belong to group alice (her primary
+      group), and Bob - who is in devteam but not in alice - could not edit it.  The
+      setgid bit is what makes shared directories work.
+
+exercises:
+  - id: team-dir
+    title: Create a team directory
+    instructions: |
+      A group **devteam** exists and student is a member.  Create **/srv/devteam** such that:
+
+      * it belongs to user **root** and group **devteam**;
+      * the group has full access (rwx) and others have **no** access;
+      * new files created inside automatically belong to **devteam** (setgid).
+
+      You will need sudo.
+    setup: |
+      getent group devteam >/dev/null || groupadd devteam
+      usermod -aG devteam student; rm -rf /srv/devteam
+    reference: sudo mkdir /srv/devteam && sudo chown root:devteam /srv/devteam && sudo chmod 2770 /srv/devteam
+    alternatives: ['sudo install -d -o root -g devteam -m 2770 /srv/devteam',
+                   'sudo mkdir /srv/devteam; sudo chgrp devteam /srv/devteam; sudo chmod g+rwxs,o-rwx /srv/devteam']
+    checks:
+      - {type: dir_exists, path: /srv/devteam}
+      - {type: owner, path: /srv/devteam, user: root, group: devteam}
+      - {type: mode, path: /srv/devteam, has: "g+rwx,g+s"}
+      - {type: mode, path: /srv/devteam, lacks: o+rwx, fail: Others still have some access to /srv/devteam.}
+    wrong:
+      - {run: sudo mkdir /srv/devteam && sudo chown root:devteam /srv/devteam && sudo chmod 770 /srv/devteam, expect: partial}
+    hints:
+      - Three things to set - existence, ownership, mode (including a special bit).
+      - chown root:devteam sets both owner and group; the setgid bit is 2 in the leading octal digit.
+      - sudo mkdir /srv/devteam; sudo chown root:devteam /srv/devteam; sudo chmod 2770 /srv/devteam
+      - "2770 = setgid + rwx for owner and group + nothing for others. ls -ld shows drwxrws---."
+  - id: web-perms
+    title: Fix web permissions
+    instructions: |
+      Someone ran `chmod -R 777` on **~/site**.  Repair it:
+
+      * all **directories** must be `755`
+      * all **regular files** must be `644`
+      * except **~/site/cgi/run.sh**, which must stay executable: `755`
+    setup: |
+      rm -rf {home}/site; mkdir -p {home}/site/css {home}/site/img {home}/site/cgi
+      touch {home}/site/index.html {home}/site/css/main.css {home}/site/img/logo.png
+      printf '#!/bin/sh\necho ok\n' > {home}/site/cgi/run.sh
+      chown -R student: {home}/site; chmod -R 777 {home}/site
+    reference: |
+      find ~/site -type d -exec chmod 755 {} +
+      find ~/site -type f -exec chmod 644 {} +
+      chmod 755 ~/site/cgi/run.sh
+    alternatives: ['chmod -R u=rwX,go=rX ~/site && chmod -R a-x ~/site/index.html ~/site/css/main.css ~/site/img/logo.png && chmod 755 ~/site/cgi/run.sh',
+                   "chmod -R a-x,u=rwX,go=rX ~/site && chmod 755 ~/site/cgi/run.sh"]
+    checks:
+      - {type: command, run: "find /home/student/site -type d ! -perm 755 | wc -l", stdout_equals: "0",
+         fail: "Some directories are not 755."}
+      - {type: command, run: "find /home/student/site -type f ! -name run.sh ! -perm 644 | wc -l", stdout_equals: "0",
+         fail: "Some files are not 644."}
+      - {type: mode, path: ~/site/cgi/run.sh, mode: "755"}
+    wrong:
+      - {run: chmod -R 755 ~/site, expect: partial}
+    hints:
+      - Directories and files need different modes, so treat them separately.
+      - find -type d and find -type f with -exec chmod; or chmod's capital X.
+      - "find ~/site -type d -exec chmod 755 {} +   and   find ~/site -type f -exec chmod 644 {} +"
+      - "Run the two find commands, then chmod 755 ~/site/cgi/run.sh to restore the script's execute bit."
+
+quiz:
+  questions:
+    - id: q-chown
+      type: truefalse
+      topic: chown and chgrp
+      prompt: An ordinary user can give one of their files to another user with chown.
+      answer: false
+    - id: q-colon
+      type: mcq
+      topic: chown and chgrp
+      prompt: What does `sudo chown :www-data index.html` change?
+      options: [Only the owner, Only the group, Owner and group, The mode]
+      answer: 1
+    - id: q-bigx
+      type: mcq
+      topic: chmod in depth
+      prompt: What does the capital X in `chmod -R a+X dir` do?
+      options:
+        - Adds execute to every file
+        - Adds execute only to directories (and files already executable by someone)
+        - Removes execute
+        - It is a typo for x
+      answer: 1
+    - id: q-2770
+      type: interpret
+      topic: A shared team directory
+      prompt: How does ls -ld show a directory with mode 2770?
+      output: "$ sudo chmod 2770 /srv/proj && ls -ld /srv/proj"
+      options: ["drwxrwx---", "drwxrws---", "drwxrwS---", "drwxrwx--T"]
+      answer: 1
+    - id: q-chgrp
+      type: short
+      topic: chown and chgrp
+      prompt: Write the command that changes the group of plan.txt to staff (without sudo).
+      answer: ["chgrp staff plan.txt", "chown :staff plan.txt", "re:(chgrp\\s+staff|chown\\s+:staff)\\s+plan\\.txt"]
+    - id: q-practical
+      type: practical
+      title: Hand over files
+      topic: chown and chgrp
+      prompt: |
+        A user **webapp** exists.  Make the whole directory tree **/srv/app** (the directory
+        and everything inside it) owned by user **webapp** and group **webapp**.
+      setup: |
+        id webapp >/dev/null 2>&1 || useradd -r -U webapp
+        rm -rf /srv/app; mkdir -p /srv/app/conf /srv/app/data; touch /srv/app/conf/app.ini /srv/app/data/db.sqlite
+      reference: sudo chown -R webapp:webapp /srv/app
+      alternatives: ['sudo chown -R webapp: /srv/app']
+      checks:
+        - {type: command, run: "find /srv/app ! -user webapp -o ! -group webapp | wc -l", stdout_equals: "0",
+           fail: "Not everything under /srv/app belongs to webapp:webapp."}
+      hints:
+        - Ownership of a whole tree is changed with one recursive command.
+        - chown -R user:group path (needs sudo).
+        - sudo chown -R webapp:webapp /srv/app
+        - "-R makes chown descend into every sub-directory; webapp: (with a trailing colon) means the user's login group."

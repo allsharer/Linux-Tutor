@@ -1,0 +1,156 @@
+id: b03-desktop-and-cli
+level: beginner
+module: getting-started
+title: The Linux desktop and the command-line interface
+duration: 20
+objectives:
+  - Compare graphical and command-line interfaces
+  - Explain why administrators rely on the command line
+  - Understand the relationship between the terminal, the shell and commands
+
+sections:
+  - title: Two ways to use Linux
+    content: |
+      Linux can be used through a **graphical user interface (GUI)** - windows,
+      icons, menus and a mouse - or through a **command-line interface (CLI)**, where
+      you type commands and read text responses.
+
+      On a desktop such as Ubuntu's **GNOME**, KDE Plasma or Xfce you click on a
+      file manager, a settings panel and an application menu.  Underneath, the same
+      operating system does the same work either way.
+
+      | | GUI | CLI |
+      |---|---|---|
+      | Easy to discover | yes | needs learning |
+      | Fast for repetitive work | no | **yes** |
+      | Works over a slow network | poorly | **yes** |
+      | Can be automated (scripts) | rarely | **yes** |
+      | Available on servers | usually not | **always** |
+  - title: Why the command line matters
+    content: |
+      Most Linux servers have **no desktop at all**.  Administrators connect to them
+      over the network and type commands.  The command line is:
+
+      * **precise** - a command says exactly what to do;
+      * **repeatable** - the same command gives the same result, and can be put in a script;
+      * **composable** - small tools can be combined into powerful pipelines;
+      * **lightweight** - it works over a slow connection and on tiny systems.
+
+      Renaming 500 photos in a file manager takes an afternoon.  On the command
+      line it is one line.
+
+      :::note
+      Learning the CLI is not about memorising commands.  It is about understanding
+      a small number of ideas - files, paths, permissions, processes, streams - that
+      every command builds on.
+      :::
+  - title: Terminal, shell and command
+    content: |
+      Three words are often confused:
+
+      * The **terminal** (or terminal emulator) is the window that shows text and
+        sends your keystrokes.  Historically it was a physical device.
+      * The **shell** is the program running inside the terminal that reads your
+        command line, interprets it and starts programs.  The most common shell is
+        **bash**.
+      * A **command** is a program (or shell built-in) that the shell runs for you.
+
+      ```
+        you --keys--> [ terminal ] --text--> [ shell: bash ] --starts--> [ ls ]
+                         ^                                              |
+                         +------------------ output --------------------+
+      ```
+
+      You can see which shell you are using: the variable `$SHELL` holds your login
+      shell, and `echo` prints it.
+    examples:
+      - command: echo $SHELL
+        explanation: Shows your login shell - /bin/bash.
+      - command: ps
+        explanation: Lists the programs running in this terminal - you will see bash itself.
+    more: |
+      There are other shells: `sh` (dash on Ubuntu, used for system scripts), `zsh`
+      (default on macOS), `fish` (friendly, not POSIX-compatible).  The file
+      /etc/shells lists the shells installed on a system.  This course uses bash,
+      the standard on almost every Linux system.
+
+exercises:
+  - id: which-shell
+    title: Identify your shell
+    instructions: |
+      Find out the **full path of your login shell** and type it into the answer box.
+    answer_prompt: "Login shell:"
+    reference: echo $SHELL
+    checks:
+      - {type: answer, equals: /bin/bash, fail: That is not your login shell.  Try echo $SHELL.}
+    hints:
+      - The shell stores the path of your login shell in a variable.
+      - The variable is called SHELL. Variables are displayed with echo and a $ sign.
+      - echo $SHELL
+      - "echo $SHELL prints /bin/bash. Your account's login shell is also recorded in /etc/passwd."
+  - id: list-shells
+    title: Which shells are installed?
+    instructions: |
+      The file **/etc/shells** lists the valid login shells on this system.  Display it,
+      then type **how many lines** it contains that start with `/` (ignore comment lines
+      starting with #).
+    answer_prompt: "Number of shells listed:"
+    reference: cat /etc/shells
+    checks:
+      - {type: answer, command: "grep -c '^/' /etc/shells"}
+    hints:
+      - First look at the file's content.
+      - Display a file with cat.
+      - cat /etc/shells
+      - "cat /etc/shells shows one shell path per line. Count the lines that begin with a slash. (Later you will learn grep -c '^/' /etc/shells to count them automatically.)"
+
+quiz:
+  questions:
+    - id: q-shell
+      type: mcq
+      topic: Terminal, shell and command
+      prompt: Which program reads the command line you type and starts the programs you ask for?
+      options: [The terminal emulator, The shell, The kernel, The desktop]
+      answer: 1
+    - id: q-servers
+      type: truefalse
+      topic: Why the command line matters
+      prompt: Most Linux servers are managed through a graphical desktop.
+      answer: false
+      explanation: Servers usually have no desktop at all; they are managed remotely from the command line.
+    - id: q-adv
+      type: multi
+      topic: Two ways to use Linux
+      prompt: Which are genuine advantages of the command line?
+      options:
+        - Commands can be saved in scripts and repeated exactly
+        - It is easier to discover for a complete beginner
+        - It works well over slow network connections
+        - Small tools can be combined into pipelines
+      answer: [0, 2, 3]
+    - id: q-bash
+      type: short
+      topic: Terminal, shell and command
+      prompt: What is the name of the most common Linux shell, used throughout this course?
+      answer: [bash, "re:(gnu )?bash|/bin/bash|bourne.again.shell"]
+    - id: q-desktops
+      type: mcq
+      topic: Two ways to use Linux
+      prompt: Which of these is a Linux desktop environment?
+      options: [GNOME, bash, apt, systemd]
+      answer: 0
+    - id: q-practical
+      type: practical
+      title: Save your shell
+      topic: Terminal, shell and command
+      prompt: Create the file **~/myshell.txt** containing the path of your login shell.
+      setup: rm -f {home}/myshell.txt
+      reference: echo $SHELL > ~/myshell.txt
+      alternatives: ['grep student /etc/passwd | cut -d: -f7 > ~/myshell.txt']
+      checks:
+        - {type: file_contains, path: ~/myshell.txt, text: /bin/bash}
+      hints:
+        - Print the shell variable, but send the output into a file.
+        - echo prints; the > symbol writes output to a file.
+        - echo $SHELL > ~/myshell.txt
+        - "echo $SHELL > ~/myshell.txt creates the file containing /bin/bash."

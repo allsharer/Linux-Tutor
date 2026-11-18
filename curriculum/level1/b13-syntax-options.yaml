@@ -1,0 +1,175 @@
+id: b13-syntax-options
+level: beginner
+module: commands
+title: Understanding command syntax and options
+duration: 25
+objectives:
+  - Read the general form of a command line
+  - Use short and long options, and combine short options
+  - Distinguish options, option arguments and operands
+  - Read usage summaries such as ls [OPTION]... [FILE]...
+
+sections:
+  - title: The shape of a command
+    content: |
+      Almost every command follows the same pattern:
+
+      ```
+      command   [options]   [arguments]
+         |          |            |
+         ls        -l -h       /etc  /var
+      ```
+
+      * **options** (also called flags or switches) change *how* the command works;
+        they usually start with `-`;
+      * **arguments** (operands) say *what* the command works on: files, users, text.
+
+      Words are separated by spaces, which is why spaces in file names need quoting.
+  - title: Short and long options
+    content: |
+      Options come in two styles:
+
+      | Style | Example | Notes |
+      |---|---|---|
+      | short | `-l`, `-a`, `-h` | one dash, one letter; can be combined: `-lah` |
+      | long | `--all`, `--human-readable` | two dashes, a word; easier to read in scripts |
+
+      `ls -a` and `ls --all` are the same.  Short options can be bundled:
+      `ls -l -a -h` = `ls -lah`.
+
+      Some options take a **value**:
+
+      ```
+      head -n 5 file          # short option with a separate value
+      head -n5 file           # value attached
+      head --lines=5 file     # long option with =
+      ```
+    examples:
+      - command: ls -lah /etc/ssh
+        explanation: Three short options bundled together.
+      - command: ls --all --human-readable -l /etc/ssh
+        explanation: The same with long options.
+      - command: sort --reverse /etc/shells
+        explanation: A long option alone.
+  - title: Reading usage summaries
+    content: |
+      Manual pages and `--help` describe syntax with a few conventions:
+
+      ```
+      cp [OPTION]... SOURCE... DIRECTORY
+      ```
+
+      | Notation | Meaning |
+      |---|---|
+      | `[ ]` | optional |
+      | `...` | may be repeated |
+      | `CAPITALS` | replace with a real value |
+      | `a|b` | choose a or b |
+
+      So cp takes zero or more options, one or more sources, and a directory.
+  - title: Order and special cases
+    content: |
+      GNU commands usually accept options before or after arguments (`ls /etc -l`
+      works), but the classic and portable order is *options first*.
+
+      `--` marks the end of options; everything after it is an argument, even if it
+      starts with a dash: `rm -- -strange-name`.
+
+      Not all programs follow GNU conventions.  `find` uses single-dash *words*
+      (`-name`, `-type`), `tar` accepts bundled letters without a dash (`tar xzf`),
+      and `dd` uses `name=value` (`dd if=a of=b`).  Always check the manual.
+
+exercises:
+  - id: sizes
+    title: Human-readable sizes
+    instructions: |
+      Using `ls` with appropriate options, find the size of **/usr/bin/bash** in a
+      human-readable form (for example `1.4M`) and type it into the answer box.
+    answer_prompt: "Size:"
+    reference: ls -lh /usr/bin/bash
+    checks:
+      - {type: answer, command: "ls -lh /usr/bin/bash | awk '{print $5}'"}
+    hints:
+      - The long listing shows the size; another option makes it readable.
+      - "-l gives a long listing, -h shows sizes in K/M/G."
+      - ls -lh /usr/bin/bash
+      - "ls -lh /usr/bin/bash shows the size column as e.g. 1.4M."
+  - id: sort-reverse
+    title: Options with values
+    instructions: |
+      The file **~/numbers.txt** contains numbers, one per line.  Create **~/top3.txt**
+      containing the **three largest** numbers, largest first.
+
+      Useful: `sort -n` sorts numerically, `-r` reverses, and `head -n N` keeps the first N lines.
+      You can combine commands with `|` (covered fully later): `sort -nr file | head -n 3`.
+    setup: |
+      printf '15\n3\n42\n8\n23\n4\n16\n' > {home}/numbers.txt; chown student: {home}/numbers.txt; rm -f {home}/top3.txt
+    reference: sort -nr ~/numbers.txt | head -n 3 > ~/top3.txt
+    alternatives: ['sort -n ~/numbers.txt | tail -3 | sort -rn > ~/top3.txt', 'sort --numeric-sort --reverse ~/numbers.txt | head --lines=3 > ~/top3.txt']
+    wrong:
+      - {run: sort -r ~/numbers.txt | head -n 3 > ~/top3.txt, feedback: without -n}
+    checks:
+      - type: file_equals
+        path: ~/top3.txt
+        content: "42\n23\n16"
+        fail: "~/top3.txt should contain 42, 23 and 16 (one per line, in that order). Note: without -n, sort compares text, so 8 comes after 42."
+    hints:
+      - Sort the numbers from largest to smallest, then keep the first three.
+      - "sort -n sorts numerically, -r reverses; head -n 3 keeps three lines; > saves."
+      - sort -nr ~/numbers.txt | head -n 3 > ~/top3.txt
+      - "sort -nr (numeric, reversed) puts 42 first; head -n 3 keeps 42, 23, 16. Plain sort -r would sort as text and put 8 first."
+
+quiz:
+  questions:
+    - id: q-bundle
+      type: truefalse
+      topic: Short and long options
+      prompt: ls -l -a and ls -la do the same thing.
+      answer: true
+    - id: q-long
+      type: mcq
+      topic: Short and long options
+      prompt: How do long options usually begin?
+      options: ["One dash: -all", "Two dashes: --all", "A slash: /all", "A plus: +all"]
+      answer: 1
+    - id: q-usage
+      type: interpret
+      topic: Reading usage summaries
+      prompt: What does this usage line tell you about mkdir?
+      output: "Usage: mkdir [OPTION]... DIRECTORY..."
+      options:
+        - Options are required; one directory may be given
+        - Options are optional; one or more directories must be given
+        - Exactly one option and one directory
+        - mkdir takes no arguments
+      answer: 1
+    - id: q-parts
+      type: mcq
+      topic: The shape of a command
+      prompt: "In `head -n 20 /var/log/syslog`, what is 20?"
+      options: [The command, An option's value (argument of -n), The file to read, An error]
+      answer: 1
+    - id: q-dd
+      type: truefalse
+      topic: Order and special cases
+      prompt: All Linux programs follow the same option conventions.
+      answer: false
+      explanation: find, tar and dd are well-known exceptions.
+    - id: q-practical
+      type: practical
+      title: Count with options
+      topic: Short and long options
+      prompt: |
+        Write the **number of lines** in **/etc/services** (just the number, nothing else)
+        into **~/count.txt**.  Hint: `wc` has an option that prints only the line count,
+        and reading the file from standard input (`wc -l < file`) leaves out the file name.
+      setup: rm -f {home}/count.txt
+      reference: wc -l < /etc/services > ~/count.txt
+      alternatives: ["wc -l /etc/services | cut -d' ' -f1 > ~/count.txt", "grep -c '' /etc/services > ~/count.txt"]
+      checks:
+        - {type: file_matches_command, path: ~/count.txt, command: "wc -l < /etc/services"}
+      hints:
+        - wc counts lines, words and characters - you only want lines.
+        - "wc -l counts lines; with < the file name is not printed."
+        - wc -l < /etc/services > ~/count.txt
+        - "wc -l < /etc/services prints only the number; > saves it in ~/count.txt."

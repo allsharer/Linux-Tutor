@@ -1,0 +1,221 @@
+id: b01-introduction
+level: beginner
+module: getting-started
+title: Introduction to Linux
+duration: 20
+objectives:
+  - Explain what an operating system does
+  - Describe what Linux is, where it came from and where it is used
+  - Distinguish the kernel from the rest of the operating system
+  - Run your very first commands in the laboratory
+
+sections:
+  - title: What is an operating system?
+    content: |
+      Every computer runs programs: a web browser, a word processor, a database.
+      Those programs need to share the processor, the memory, the disks and the
+      network.  The **operating system** (OS) is the software that manages all of
+      that hardware and offers services to programs.
+
+      ```
+         +-------------------------------------------+
+         |  Programs: browser, editor, web server... |
+         +-------------------------------------------+
+         |  Operating system (kernel + system tools) |
+         +-------------------------------------------+
+         |  Hardware: CPU, memory, disks, network    |
+         +-------------------------------------------+
+      ```
+
+      Windows and macOS are operating systems.  So is **Linux**.
+
+      :::note
+      You do not need any previous knowledge for this course.  Each lesson builds
+      on the previous one, and you will practise everything in a real Linux system.
+      :::
+  - title: Where Linux came from
+    content: |
+      In 1991 a Finnish student, **Linus Torvalds**, wrote a small operating-system
+      *kernel* as a hobby and published it on the Internet.  Programmers around the
+      world started improving it.  Combined with the free tools of the **GNU**
+      project (a free re-implementation of the Unix tools, started in 1983), it
+      became a complete, free operating system.
+
+      Linux is **open source**: anyone may read, change and share its source code.
+      That openness is why it spread everywhere:
+
+      * Almost every web server and cloud system runs Linux.
+      * Android phones run on the Linux kernel.
+      * All of the world's 500 fastest supercomputers run Linux.
+      * Routers, TVs, cars and many other devices contain Linux.
+
+      Linux follows the design ideas of **Unix**, an operating system created at
+      Bell Labs in 1969.  That is why you will often read "Unix-like" - and why the
+      skills you learn here also apply to macOS and BSD systems.
+    more: |
+      Strictly, "Linux" is only the kernel.  The complete system is sometimes called
+      "GNU/Linux" because so many of the everyday tools (bash, ls, cp, grep...) come from
+      the GNU project.  In everyday speech, "Linux" means the whole system.
+  - title: The kernel and everything else
+    content: |
+      The **kernel** is the core of the operating system.  It starts first, controls
+      the hardware, decides which program runs on the CPU, manages memory and keeps
+      programs from interfering with each other.  You never talk to the kernel directly.
+
+      Around the kernel sit hundreds of programs: the **shell** (the program that
+      reads the commands you type), utilities that copy files or show what is
+      running, and services such as web servers.
+
+      You can ask the system about itself.  `uname` prints the name of the kernel,
+      and `uname -r` its version:
+
+      ```
+      $ uname
+      Linux
+      $ uname -r
+      6.8.0-45-generic
+      ```
+
+      :::tip
+      Your laboratory is a real Ubuntu Linux system running in an isolated
+      container.  It shares the kernel of the computer you are using, so `uname -r`
+      shows the host's kernel version.
+      :::
+    examples:
+      - command: uname
+        explanation: Prints the kernel name - Linux.
+      - command: uname -r
+        explanation: Prints the kernel release (version).
+      - command: whoami
+        explanation: Prints the name of the user you are logged in as.
+  - title: Your first commands
+    content: |
+      Below the lecture is a **terminal** connected to your laboratory.  The text
+      ending in `$` is the **prompt**: the shell is waiting for a command.
+
+      ```
+      student@linuxlab:~$
+      ```
+
+      It tells you *who* you are (`student`), *which computer* you are on
+      (`linuxlab`) and *where* you are (`~`, your home directory).
+
+      Type a command and press **Enter**.  Try these:
+
+      * `date` - today's date and time
+      * `whoami` - your user name
+      * `hostname` - the computer's name
+      * `cal` is not installed here - try it anyway and read the error.  Errors are
+        information, not failure.
+
+      :::note
+      Commands are case-sensitive: `date` works, `Date` does not.
+      :::
+    examples:
+      - command: date
+        explanation: Shows the current date and time.
+      - command: hostname
+        explanation: Shows the name of this computer (linuxlab).
+
+exercises:
+  - id: whoami
+    title: Who are you?
+    instructions: |
+      Use a command in the terminal to find out the name of the user you are logged
+      in as.  Type the user name into the answer box and press **Check my work**.
+    answer_prompt: "User name:"
+    reference: whoami
+    checks:
+      - type: answer
+        equals: student
+        fail: That is not the user name the terminal is using.  Look at the prompt, or run whoami.
+    hints:
+      - The prompt in the terminal already contains this information, before the @ sign.
+      - There is a command whose name is literally a question - "who am I?".
+      - "Type: whoami"
+      - "whoami prints the user name of the account you are using - student. The prompt student@linuxlab:~$ shows the same thing."
+  - id: kernel-version
+    title: Which kernel?
+    instructions: |
+      Find the **release (version) of the kernel** that your laboratory is using and
+      type it exactly into the answer box.
+    answer_prompt: "Kernel release:"
+    reference: uname -r
+    checks:
+      - type: answer
+        command: uname -r
+        fail: That is not the kernel release.  Make sure you copy the whole version string.
+    hints:
+      - The command that prints system information about the kernel is short for "Unix name".
+      - The command is uname; one of its options prints the kernel release.
+      - "uname -r"
+      - "uname -r prints only the kernel release, for example 6.8.0-45-generic. Select it in the terminal, copy it with Ctrl+Shift+C and paste it into the answer box."
+
+quiz:
+  questions:
+    - id: q-os
+      type: mcq
+      topic: What is an operating system?
+      prompt: What is the main job of an operating system?
+      options:
+        - To browse the Internet
+        - To manage the hardware and provide services to programs
+        - To protect the computer from viruses
+        - To provide a graphical desktop
+      answer: 1
+      explanation: Browsers and desktops are programs; the OS manages hardware and shares it between programs.
+    - id: q-kernel
+      type: mcq
+      topic: The kernel and everything else
+      prompt: Which part of Linux controls the hardware and schedules programs on the CPU?
+      options: [The shell, The kernel, The terminal, The desktop]
+      answer: 1
+    - id: q-open
+      type: truefalse
+      topic: Where Linux came from
+      prompt: Linux is open source, so anyone may read and modify its source code.
+      answer: true
+    - id: q-unix
+      type: mcq
+      topic: Where Linux came from
+      prompt: Linux follows the design of which older operating system?
+      options: [Windows, MS-DOS, Unix, Android]
+      answer: 2
+      explanation: Linux is a Unix-like system; Android is built on top of the Linux kernel.
+    - id: q-prompt
+      type: interpret
+      topic: Your first commands
+      prompt: "Look at this prompt.  Which statement is correct?"
+      output: "maria@webserver:/var/www$"
+      options:
+        - The user is webserver and the computer is maria
+        - The user is maria, the computer is webserver and the current directory is /var/www
+        - The command maria was run on /var/www
+        - The shell is waiting for a password
+      answer: 1
+    - id: q-case
+      type: truefalse
+      topic: Your first commands
+      prompt: "Linux commands are not case-sensitive: DATE and date do the same thing."
+      answer: false
+      explanation: Linux is case-sensitive - commands and file names must be typed exactly.
+    - id: q-practical-host
+      type: practical
+      title: Name the computer
+      topic: Your first commands
+      prompt: Find the **hostname** (computer name) of your laboratory and type it into the answer box.
+      answer_prompt: "Hostname:"
+      reference: hostname
+      checks:
+        - {type: answer, command: hostname}
+      hints:
+        - It appears in the prompt after the @ sign.
+        - A command with exactly that name prints it.
+        - hostname
+        - "hostname prints linuxlab."
+
+references:
+  - title: The Linux Foundation - What is Linux?
+    url: https://www.linuxfoundation.org/
+  - title: GNU project - the GNU operating system and Linux
+    url: https://www.gnu.org/gnu/linux-and-gnu.html

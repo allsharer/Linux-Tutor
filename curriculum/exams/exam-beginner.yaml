@@ -1,0 +1,159 @@
+id: exam-beginner
+title: Beginner Level Examination
+level: beginner
+passing_score: null          # use the configured examination pass mark (default 80%)
+sample_from_lessons: 12      # plus 12 theory questions drawn from the Beginner lessons
+description: |
+  This examination covers the whole **Beginner** level: the filesystem, paths, files and
+  directories, getting help, users and permissions, pipes and redirection, text processing,
+  processes and system information.
+
+  The practical tasks describe *new situations* - you will not find them word for word in
+  the lessons.  Read each task carefully, work in the terminal, and submit.  Your work is
+  marked on the result, so any correct method is accepted.
+
+questions:
+  - id: x-path
+    type: troubleshoot
+    topic: b06-paths
+    prompt: |
+      Your prompt shows `student@linuxlab:/var/log$`.  You type `cp syslog backup/` and get
+      "cannot create regular file 'backup/': Not a directory".  What is the most likely reason?
+    options:
+      - syslog does not exist
+      - There is no directory /var/log/backup - the relative path points into /var/log
+      - cp cannot copy log files
+      - You are not root
+    answer: 1
+  - id: x-perm
+    type: interpret
+    topic: b16-permissions
+    prompt: Who may run this script?
+    output: "-rwxr-x--- 1 anna devs 812 deploy.sh"
+    options: [Everyone, anna and members of devs, Only anna, Nobody - it lacks the s bit]
+    answer: 1
+  - id: x-pipe
+    type: mcq
+    topic: b17-pipes-redirection
+    prompt: Which command counts how many users have /usr/sbin/nologin as their shell?
+    options:
+      - "cat /etc/passwd > grep nologin | wc"
+      - "grep -c '/usr/sbin/nologin$' /etc/passwd"
+      - "wc -l /etc/passwd | grep nologin"
+      - "grep nologin | wc -l /etc/passwd"
+    answer: 1
+  - id: x-help
+    type: short
+    topic: b14-getting-help
+    prompt: You want to read the manual page about the format of the crontab FILE (not the command).  What do you type?
+    answer: ["man 5 crontab", "man crontab.5", "man -s 5 crontab"]
+  - id: x-kill
+    type: truefalse
+    topic: b19-processes
+    prompt: kill -9 should be the first thing you try when a program does not respond.
+    answer: false
+    explanation: Try SIGTERM first so the program can clean up; SIGKILL is the last resort.
+
+  - id: x-p1
+    type: practical
+    title: Organise a project
+    topic: b10-copy-move
+    prompt: |
+      A colleague left a mess in **~/incoming**.  Organise it:
+
+      * create **~/project/docs** and **~/project/images**;
+      * move all **.pdf** files from ~/incoming into ~/project/docs;
+      * move all **.png** files from ~/incoming into ~/project/images;
+      * delete **~/incoming/notes.tmp**;
+      * keep **~/incoming/README** where it is.
+    setup: |
+      rm -rf {home}/incoming {home}/project; mkdir -p {home}/incoming; cd {home}/incoming
+      touch spec.pdf manual.pdf logo.png chart.png notes.tmp README; chown -R student: {home}/incoming
+    reference: |
+      mkdir -p ~/project/docs ~/project/images
+      mv ~/incoming/*.pdf ~/project/docs/ && mv ~/incoming/*.png ~/project/images/
+      rm ~/incoming/notes.tmp
+    checks:
+      - {type: file_exists, path: ~/project/docs/spec.pdf}
+      - {type: file_exists, path: ~/project/docs/manual.pdf}
+      - {type: file_exists, path: ~/project/images/logo.png}
+      - {type: file_exists, path: ~/project/images/chart.png}
+      - {type: not_exists, path: ~/incoming/notes.tmp}
+      - {type: command, run: "ls /home/student/incoming", stdout_equals: README, fail: "~/incoming should contain only README."}
+    hints: [Make the directories, then move with wildcards., "mkdir -p; mv *.pdf; mv *.png; rm", "mkdir -p ~/project/docs ~/project/images", "Then mv ~/incoming/*.pdf ~/project/docs/ etc."]
+  - id: x-p2
+    type: practical
+    title: Protect a file
+    topic: b16-permissions
+    prompt: |
+      **~/salary.csv** must be readable and writable by you only.  **~/team-plan.txt** must be
+      readable by everyone, writable only by you.  **~/tools/cleanup.sh** must be executable by
+      you (and keep its other permissions).
+    setup: |
+      mkdir -p {home}/tools; echo "name,salary" > {home}/salary.csv; echo plan > {home}/team-plan.txt
+      printf '#!/bin/bash\necho cleaning\n' > {home}/tools/cleanup.sh
+      chmod 666 {home}/salary.csv; chmod 600 {home}/team-plan.txt; chmod 640 {home}/tools/cleanup.sh
+      chown -R student: {home}/salary.csv {home}/team-plan.txt {home}/tools
+    reference: chmod 600 ~/salary.csv && chmod 644 ~/team-plan.txt && chmod u+x ~/tools/cleanup.sh
+    checks:
+      - {type: mode, path: ~/salary.csv, mode: "600"}
+      - {type: mode, path: ~/team-plan.txt, mode: "644"}
+      - {type: mode, path: ~/tools/cleanup.sh, mode: "740"}
+    hints: [Three chmod commands., "600, 644 and u+x", chmod 600 ~/salary.csv, "u+x keeps the other bits: 640 becomes 740."]
+  - id: x-p3
+    type: practical
+    title: Log analysis
+    topic: b18-text-processing
+    prompt: |
+      **/var/log/exam-app.log** contains lines like `2024-05-01 12:00:01 LEVEL message`.
+      Create **~/warnings.txt** containing only the **WARNING** lines, and write the **number
+      of ERROR lines** into **~/error-count.txt** (just the number).
+    setup: |
+      : > /var/log/exam-app.log
+      for i in $(seq 1 30); do
+        case $((i % 5)) in 0) l=ERROR;; 1|3) l=WARNING;; *) l=INFO;; esac
+        echo "2024-05-01 12:00:$(printf %02d $i) $l event number $i" >> /var/log/exam-app.log
+      done
+      chmod 644 /var/log/exam-app.log; rm -f {home}/warnings.txt {home}/error-count.txt
+    reference: |
+      grep WARNING /var/log/exam-app.log > ~/warnings.txt
+      grep -c ERROR /var/log/exam-app.log > ~/error-count.txt
+    checks:
+      - {type: file_matches_command, path: ~/warnings.txt, command: "grep WARNING /var/log/exam-app.log"}
+      - {type: file_matches_command, path: ~/error-count.txt, command: "grep -c ERROR /var/log/exam-app.log"}
+    hints: [grep selects lines., "grep -c counts.", "grep WARNING FILE > ~/warnings.txt", "grep -c ERROR FILE > ~/error-count.txt"]
+  - id: x-p4
+    type: practical
+    title: Stop the right process
+    topic: b19-processes
+    prompt: |
+      Two programs are running: **report-gen** (important - leave it running) and
+      **report-gen-old** (an obsolete copy).  Stop **only report-gen-old**.
+    setup: |
+      pkill -x report-gen-old; pkill -x report-gen; sleep 0.3
+      cp /usr/bin/sleep /usr/local/bin/report-gen; cp /usr/bin/sleep /usr/local/bin/report-gen-old
+      su student -c 'nohup /usr/local/bin/report-gen 9999 >/dev/null 2>&1 & nohup /usr/local/bin/report-gen-old 9999 >/dev/null 2>&1 &'; sleep 0.5
+    cleanup: pkill -x report-gen; pkill -x report-gen-old; true
+    reference: pkill -x report-gen-old
+    alternatives: ['kill $(pgrep -x report-gen-old)']
+    wrong:
+      - {run: pkill report-gen, expect: correct_side_effects}
+    checks:
+      - {type: command, run: "pgrep -x report-gen-old | wc -l", stdout_equals: "0", fail: "report-gen-old is still running."}
+    constraints:
+      - {type: command, run: "pgrep -x report-gen | wc -l", stdout_regex: '^[1-9]', fail: "report-gen was stopped too - pkill report-gen matches both names! Use an exact match (-x)."}
+    hints: [Be careful - one name contains the other., "pkill -x matches the exact name.", pkill -x report-gen-old, "pkill report-gen (without -x) would match both processes."]
+  - id: x-p5
+    type: practical
+    title: Help yourself
+    topic: b14-getting-help
+    prompt: |
+      Use the documentation of **ls** to find the option that lists files sorted by
+      **modification time, oldest first** (reversing the time sort).  Write the resulting
+      listing of **/etc/apt** (names only, one per line) into **~/apt-by-age.txt**.
+      Use `ls -1` style output (one name per line).
+    setup: rm -f {home}/apt-by-age.txt
+    reference: ls -1tr /etc/apt > ~/apt-by-age.txt
+    checks:
+      - {type: file_matches_command, path: ~/apt-by-age.txt, command: "ls -1tr /etc/apt"}
+    hints: [man ls - look for time and reverse., "-t sorts by time, -r reverses, -1 one per line.", ls -1tr /etc/apt > ~/apt-by-age.txt, "Combine the three options."]
